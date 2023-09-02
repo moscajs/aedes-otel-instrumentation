@@ -1,63 +1,63 @@
-import { Span } from '@opentelemetry/api';
+import { Span } from '@opentelemetry/api'
 import {
   InstrumentationBase,
   InstrumentationNodeModuleDefinition,
   InstrumentationNodeModuleFile,
   isWrapped,
-} from '@opentelemetry/instrumentation';
+} from '@opentelemetry/instrumentation'
 import {
   MessagingDestinationKindValues,
   SemanticAttributes,
-} from '@opentelemetry/semantic-conventions';
-import type Aedes from 'aedes';
-import type { ConnectPacket, Connection } from 'aedes';
-import type { IncomingMessage } from 'node:http';
-import { AedesInstrumentationConfig } from './types';
+} from '@opentelemetry/semantic-conventions'
+import type Aedes from 'aedes'
+import type { ConnectPacket, Connection } from 'aedes'
+import type { IncomingMessage } from 'node:http'
+import { AedesInstrumentationConfig } from './types'
 import {
   AedesClient,
   HandleConnect,
   PacketFactory,
   PatchedAedesPacket,
-} from './internal-types';
-import { CONNECTION_ATTRIBUTES, PACKET_STORED_SPAN } from './utils';
+} from './internal-types'
+import { CONNECTION_ATTRIBUTES, PACKET_STORED_SPAN } from './utils'
 
 declare module 'mqtt-packet' {
   export interface IPacket {
     ctx?: {
-      traceparent?: any;
-      tracestate?: any;
-    };
-    [PACKET_STORED_SPAN]?: Span;
+      traceparent?: unknown
+      tracestate?: unknown
+    }
+    [PACKET_STORED_SPAN]?: Span
   }
 }
 
 export class AedesInstrumentation extends InstrumentationBase {
-  protected override _config!: AedesInstrumentationConfig;
+  protected override _config!: AedesInstrumentationConfig
 
   constructor(config: AedesInstrumentationConfig = {}) {
-    super('@opentelemetry/instrumentation-aedes', '0.0.0', config);
+    super('@opentelemetry/instrumentation-aedes', '0.0.0', config)
   }
 
   override setConfig(config: AedesInstrumentationConfig = {}) {
-    this._config = config;
+    this._config = config
   }
 
   isWrapped<M extends object>(moduleExports: M, name?: keyof M) {
     if (!name || !(name in moduleExports)) {
-      return isWrapped(moduleExports);
+      return isWrapped(moduleExports)
     }
-    return isWrapped(moduleExports[name]);
+    return isWrapped(moduleExports[name])
   }
 
   protected init() {
-    this._diag.debug('patching');
+    this._diag.debug('patching')
 
     const handleConnectModuleFile = new InstrumentationNodeModuleFile(
       'aedes/lib/handlers/connect.js',
       ['>=0.5.0'],
       this.patchConnect.bind(this),
       this.unpatchConnect.bind(this)
-    );
+    )
 
     // TODO: patch aedes/lib/write to attach event to span created during publish
 
@@ -66,7 +66,7 @@ export class AedesInstrumentation extends InstrumentationBase {
       ['>=3.0.0'],
       this.patchAedesPacket.bind(this),
       this.unpatchAedesPacket.bind(this)
-    );
+    )
 
     const aedesModule = new InstrumentationNodeModuleDefinition<typeof Aedes>(
       'aedes',
@@ -74,25 +74,25 @@ export class AedesInstrumentation extends InstrumentationBase {
       this.patchAedes.bind(this),
       this.unpatchAedes.bind(this),
       [handleConnectModuleFile]
-    );
+    )
 
-    return [aedesPacketModule, aedesModule];
+    return [aedesPacketModule, aedesModule]
   }
 
   // #region aedes-packet
   private patchAedesPacket(moduleExports: { Packet: PacketFactory }) {
-    moduleExports = this.unpatchAedesPacket(moduleExports);
+    moduleExports = this.unpatchAedesPacket(moduleExports)
     if (!isWrapped(moduleExports)) {
-      this._wrap(moduleExports, 'Packet', this.getAedesPacketPatch.bind(this));
+      this._wrap(moduleExports, 'Packet', this.getAedesPacketPatch.bind(this))
     }
-    return moduleExports;
+    return moduleExports
   }
 
   private unpatchAedesPacket(moduleExports: { Packet: PacketFactory }) {
     if (isWrapped(moduleExports)) {
-      this._unwrap(moduleExports, 'Packet');
+      this._unwrap(moduleExports, 'Packet')
     }
-    return moduleExports;
+    return moduleExports
   }
 
   private getAedesPacketPatch(original: PacketFactory) {
@@ -105,11 +105,11 @@ export class AedesInstrumentation extends InstrumentationBase {
         this,
         originalPacket,
         broker
-      ) as PatchedAedesPacket;
-      packet.ctx = originalPacket.ctx;
-      packet[PACKET_STORED_SPAN] = originalPacket[PACKET_STORED_SPAN];
-      return packet;
-    };
+      ) as PatchedAedesPacket
+      packet.ctx = originalPacket.ctx
+      packet[PACKET_STORED_SPAN] = originalPacket[PACKET_STORED_SPAN]
+      return packet
+    }
   }
 
   // #endregion
@@ -117,7 +117,7 @@ export class AedesInstrumentation extends InstrumentationBase {
   // #region aedes
 
   private patchAedes(moduleExports: typeof Aedes) {
-    moduleExports = this.unpatchAedes(moduleExports);
+    moduleExports = this.unpatchAedes(moduleExports)
     if (!this.isWrapped(moduleExports.prototype, 'handle')) {
       // this require to modify aedes =>
       // Aedes.prototype.handle = function (conn, req) {
@@ -130,39 +130,39 @@ export class AedesInstrumentation extends InstrumentationBase {
         moduleExports.prototype,
         'handle',
         this.getAedesHandlePatch.bind(this)
-      );
+      )
     }
     // TODO: how to patch preconnect ?
-    return moduleExports;
+    return moduleExports
   }
 
   private unpatchAedes(moduleExports: typeof Aedes) {
     if (isWrapped(moduleExports.prototype.handle)) {
-      this._unwrap(moduleExports.prototype, 'handle');
+      this._unwrap(moduleExports.prototype, 'handle')
     }
     if (isWrapped(moduleExports.prototype.subscribe)) {
-      this._unwrap(moduleExports.prototype, 'subscribe');
+      this._unwrap(moduleExports.prototype, 'subscribe')
     }
-    return moduleExports;
+    return moduleExports
   }
 
   private patchConnect(moduleExports: HandleConnect) {
-    this.unpatchConnect(moduleExports);
+    this.unpatchConnect(moduleExports)
     if (!this.isWrapped(moduleExports, 'handleConnect')) {
       this._wrap(
         moduleExports,
         'handleConnect',
         this.getConnectPatch.bind(this)
-      );
+      )
     }
-    return moduleExports;
+    return moduleExports
   }
 
   private unpatchConnect(moduleExports?: HandleConnect) {
     if (moduleExports && this.isWrapped(moduleExports, 'handleConnect')) {
-      this._unwrap(moduleExports, 'handleConnect');
+      this._unwrap(moduleExports, 'handleConnect')
     }
-    return moduleExports;
+    return moduleExports
   }
 
   private getAedesHandlePatch(original: Aedes['handle']) {
@@ -171,7 +171,7 @@ export class AedesInstrumentation extends InstrumentationBase {
       stream: Connection,
       request?: IncomingMessage
     ) {
-      const client = original.call(this, stream, request) as AedesClient;
+      const client = original.call(this, stream, request) as AedesClient
       client[CONNECTION_ATTRIBUTES] = {
         [SemanticAttributes.MESSAGING_SYSTEM]: 'aedes',
         // How to get the broker URL?
@@ -180,9 +180,9 @@ export class AedesInstrumentation extends InstrumentationBase {
         // [SemanticAttributes.NET_PEER_IP]: client.conn.remoteAddress,
         // [SemanticAttributes.NET_PEER_PORT]: client.conn.remotePort,
         // [SemanticAttributes.NET_TRANSPORT]:'IP.TCP',
-      };
-      return client;
-    };
+      }
+      return client
+    }
   }
 
   private getConnectPatch(original: HandleConnect['handleConnect']) {
@@ -207,13 +207,13 @@ export class AedesInstrumentation extends InstrumentationBase {
               // TODO: determine the correct version based on packet.protocolVersion and packet.protocolId
               [SemanticAttributes.MESSAGING_PROTOCOL_VERSION]: '3.1.1',
               [SemanticAttributes.MESSAGE_ID]: packet.messageId,
-            };
-            console.log(client[CONNECTION_ATTRIBUTES]);
+            }
+            console.log(client[CONNECTION_ATTRIBUTES])
           }
-          done.call(this, err);
+          done.call(this, err)
         }
-      );
-    };
+      )
+    }
   }
 
   // #endregion

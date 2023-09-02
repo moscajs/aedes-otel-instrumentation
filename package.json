@@ -33,12 +33,17 @@
     "@opentelemetry/api": "^1.0.0"
   },
   "devDependencies": {
+    "@opentelemetry/auto-instrumentations-node": "^0.39.2",
+    "@opentelemetry/resources": "^1.15.2",
+    "@opentelemetry/sdk-node": "^0.41.2",
+    "@opentelemetry/sdk-trace-base": "^1.15.2",
     "@types/node": "^20.5.8",
     "@typescript-eslint/eslint-plugin": "^6.5.0",
     "@typescript-eslint/parser": "^6.5.0",
     "aedes": "^0.50.0",
     "aedes-packet": "^3.0.0",
     "eslint": "^8.48.0",
+    "mqtt": "^5.0.4",
     "patch-package": "^8.0.0",
     "prettier": "^3.0.3",
     "typescript": "^5.2.2"
