@@ -1,4 +1,3 @@
-import { Span } from '@opentelemetry/api'
 import {
   InstrumentationBase,
   InstrumentationNodeModuleDefinition,
@@ -21,15 +20,15 @@ import {
 } from './internal-types'
 import { CONNECTION_ATTRIBUTES, PACKET_STORED_SPAN } from './utils'
 
-declare module 'mqtt-packet' {
-  export interface IPacket {
-    ctx?: {
-      traceparent?: unknown
-      tracestate?: unknown
-    }
-    [PACKET_STORED_SPAN]?: Span
-  }
-}
+// declare module 'mqtt-packet' {
+//   export interface IPacket {
+//     ctx?: {
+//       traceparent?: unknown
+//       tracestate?: unknown
+//     }
+//     [PACKET_STORED_SPAN]?: Span
+//   }
+// }
 
 export class AedesInstrumentation extends InstrumentationBase {
   protected override _config!: AedesInstrumentationConfig
@@ -98,7 +97,7 @@ export class AedesInstrumentation extends InstrumentationBase {
   private getAedesPacketPatch(original: PacketFactory) {
     return function patchedPacket(
       this: Aedes,
-      originalPacket: PatchedAedesPacket,
+      originalPacket?: PatchedAedesPacket,
       broker?: Aedes
     ) {
       const packet = original.call(
@@ -106,8 +105,13 @@ export class AedesInstrumentation extends InstrumentationBase {
         originalPacket,
         broker
       ) as PatchedAedesPacket
-      packet.ctx = originalPacket.ctx
-      packet[PACKET_STORED_SPAN] = originalPacket[PACKET_STORED_SPAN]
+      console.log('packet', packet, originalPacket)
+      if (!originalPacket) {
+        return packet
+      }
+      'ctx' in originalPacket && (packet.ctx = originalPacket.ctx)
+      PACKET_STORED_SPAN in originalPacket &&
+        (packet[PACKET_STORED_SPAN] = originalPacket[PACKET_STORED_SPAN])
       return packet
     }
   }
