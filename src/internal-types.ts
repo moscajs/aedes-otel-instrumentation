@@ -1,5 +1,9 @@
-import type { Attributes, Span } from '@opentelemetry/api'
-import type { CONNECTION_ATTRIBUTES, PACKET_STORED_SPAN } from './utils'
+import type { Attributes } from '@opentelemetry/api'
+import type {
+  CONNECTION_ATTRIBUTES,
+  PACKET_STORED_CONTEXT,
+  PACKET_STORED_SPAN,
+} from './utils'
 import type { AedesPacket } from 'aedes-packet'
 import type Aedes from 'aedes'
 import type {
@@ -11,20 +15,28 @@ import type {
   UnsubscribePacket,
 } from 'aedes'
 
-/**
- * we manually add the ctx property to the packet
- * this property is used to store the context of the span
- */
-export type PatchedAedesPacket = AedesPacket & {
-  ctx?: {
-    traceparent?: unknown
-    tracestate?: unknown
+declare module 'mqtt-packet' {
+  interface IPublishPacket {
+    [PACKET_STORED_CONTEXT]?: {
+      traceparent?: unknown
+      tracestate?: unknown
+    }
+    [PACKET_STORED_SPAN]?: import('@opentelemetry/api').Span
   }
-  [PACKET_STORED_SPAN]?: Span
+}
+
+declare module 'aedes-packet' {
+  interface IPacket {
+    [PACKET_STORED_CONTEXT]?: {
+      traceparent?: unknown
+      tracestate?: unknown
+    }
+    [PACKET_STORED_SPAN]?: import('@opentelemetry/api').Span
+  }
 }
 
 export type PacketFactory = (
-  original?: PatchedAedesPacket,
+  original?: AedesPacket,
   broker?: Aedes
 ) => AedesPacket
 

@@ -4,6 +4,10 @@ export const PACKET_STORED_SPAN: unique symbol = Symbol(
   'opentelemetry.aedes.packet.stored-span'
 )
 
+export const PACKET_STORED_CONTEXT: unique symbol = Symbol(
+  'opentelemetry.aedes.packet.stored-ctx'
+)
+
 export const CLIENT_SPANS_NOT_ENDED: unique symbol = Symbol(
   'opentelemetry.aedes.client.spans-not-ended'
 )
