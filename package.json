@@ -6,6 +6,8 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint . --ext .ts",
+    "prettier": "prettier --write .",
     "build": "tsc"
   },
   "repository": {
@@ -32,8 +34,13 @@
   },
   "devDependencies": {
     "@types/node": "^20.5.8",
+    "@typescript-eslint/eslint-plugin": "^6.5.0",
+    "@typescript-eslint/parser": "^6.5.0",
     "aedes": "^0.50.0",
     "aedes-packet": "^3.0.0",
+    "eslint": "^8.48.0",
+    "patch-package": "^8.0.0",
+    "prettier": "^3.0.3",
     "typescript": "^5.2.2"
   }
 }
