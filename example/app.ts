@@ -40,7 +40,8 @@ function createHttpServer(): Promise<http.Server> {
 
 function createAedesServer(): Promise<Aedes> {
   const broker = new Aedes({})
-  const tcpServer = net.createServer(broker.handle)
+  const tcpServer = net.createServer(broker.handle.bind(broker))
+  // or  net.createServer((socket) => broker.handle(socket))
 
   return new Promise((resolve) => {
     broker.once('closed', () => {

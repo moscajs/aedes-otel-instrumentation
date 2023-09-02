@@ -18,17 +18,12 @@ import {
   PacketFactory,
   PatchedAedesPacket,
 } from './internal-types'
-import { CONNECTION_ATTRIBUTES, PACKET_STORED_SPAN } from './utils'
-
-// declare module 'mqtt-packet' {
-//   export interface IPacket {
-//     ctx?: {
-//       traceparent?: unknown
-//       tracestate?: unknown
-//     }
-//     [PACKET_STORED_SPAN]?: Span
-//   }
-// }
+import {
+  CONNECTION_ATTRIBUTES,
+  PACKET_STORED_SPAN,
+  isNetSocket,
+  isNetSocketAddress,
+} from './utils'
 
 export class AedesInstrumentation extends InstrumentationBase {
   protected override _config!: AedesInstrumentationConfig
@@ -105,7 +100,6 @@ export class AedesInstrumentation extends InstrumentationBase {
         originalPacket,
         broker
       ) as PatchedAedesPacket
-      console.log('packet', packet, originalPacket)
       if (!originalPacket) {
         return packet
       }
@@ -180,10 +174,23 @@ export class AedesInstrumentation extends InstrumentationBase {
         [SemanticAttributes.MESSAGING_SYSTEM]: 'aedes',
         // How to get the broker URL?
         [SemanticAttributes.MESSAGING_URL]: '',
-        // ? use protocol decoder to determine remote address ?
-        // [SemanticAttributes.NET_PEER_IP]: client.conn.remoteAddress,
-        // [SemanticAttributes.NET_PEER_PORT]: client.conn.remotePort,
-        // [SemanticAttributes.NET_TRANSPORT]:'IP.TCP',
+      }
+      // use protocol decoder to determine remote address ?
+      if (isNetSocket(stream)) {
+        const address = stream.address()
+        client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_PEER_IP] =
+          stream.remoteAddress
+        client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_PEER_PORT] =
+          stream.remotePort
+        if (isNetSocketAddress(address)) {
+          client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_HOST_IP] =
+            address.address
+          client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_HOST_PORT] =
+            address.port
+          client[CONNECTION_ATTRIBUTES][
+            SemanticAttributes.NET_TRANSPORT
+          ] = `IP.${address.family}`
+        }
       }
       return client
     }
@@ -210,9 +217,9 @@ export class AedesInstrumentation extends InstrumentationBase {
               [SemanticAttributes.MESSAGING_PROTOCOL]: 'MQTT',
               // TODO: determine the correct version based on packet.protocolVersion and packet.protocolId
               [SemanticAttributes.MESSAGING_PROTOCOL_VERSION]: '3.1.1',
-              [SemanticAttributes.MESSAGE_ID]: packet.messageId,
+              // [SemanticAttributes.MESSAGE_ID]: packet.messageId,
             }
-            console.log(client[CONNECTION_ATTRIBUTES])
+            // console.log('connect', client[CONNECTION_ATTRIBUTES])
           }
           done.call(this, err)
         }
