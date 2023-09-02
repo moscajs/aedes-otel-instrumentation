@@ -1,0 +1,10 @@
+diff --git a/node_modules/aedes-packet/packet.js b/node_modules/aedes-packet/packet.js
+index 0202d40..4f6f3ce 100755
+--- a/node_modules/aedes-packet/packet.js
++++ b/node_modules/aedes-packet/packet.js
+@@ -21,4 +21,4 @@ function Packet (original, broker) {
+   }
+ }
+ 
+-module.exports = Packet
++module.exports = { Packet }

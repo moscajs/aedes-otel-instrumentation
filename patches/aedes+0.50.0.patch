@@ -1,0 +1,267 @@
+diff --git a/node_modules/aedes/aedes.js b/node_modules/aedes/aedes.js
+index c02d289..5fe76b6 100644
+--- a/node_modules/aedes/aedes.js
++++ b/node_modules/aedes/aedes.js
+@@ -7,7 +7,7 @@ const series = require('fastseries')
+ const { v4: uuidv4 } = require('uuid')
+ const reusify = require('reusify')
+ const { pipeline } = require('stream')
+-const Packet = require('aedes-packet')
++const { Packet } = require('aedes-packet')
+ const memory = require('aedes-persistence')
+ const mqemitter = require('mqemitter')
+ const Client = require('./lib/client')
+@@ -45,6 +45,7 @@ function Aedes (opts) {
+   // +1 when construct a new aedes-packet
+   // internal track for last brokerCounter
+   this.counter = 0
++  this.concurrency = opts.concurrency
+   this.queueLimit = opts.queueLimit
+   this.connectTimeout = opts.connectTimeout
+   this.maxClientsIdLength = opts.maxClientsIdLength
+@@ -52,12 +53,7 @@ function Aedes (opts) {
+     concurrency: opts.concurrency,
+     matchEmptyLevels: true // [MQTT-4.7.1-3]
+   })
+-  this.handle = function handle (conn, req) {
+-    conn.setMaxListeners(opts.concurrency * 2)
+-    // create a new Client instance for a new connection
+-    // return, just to please standard
+-    return new Client(that, conn, req)
+-  }
++
+   this.persistence = opts.persistence || memory()
+   this.persistence.broker = this
+   this._parallel = parallel()
+@@ -250,6 +246,13 @@ function removeSharp (sub) {
+   return code !== 43 && code !== 35
+ }
+ 
++Aedes.prototype.handle = function handle (conn, req) {
++    conn.setMaxListeners(this.concurrency * 2)
++    // create a new Client instance for a new connection
++    // return, just to please standard
++    return new Client(this, conn, req)
++}
++
+ function callPublished (_, done) {
+   this.broker.published(this.packet, this.client, done)
+   this.broker.emit('publish', this.packet, this.client)
+diff --git a/node_modules/aedes/lib/client.js b/node_modules/aedes/lib/client.js
+index 414d8e5..e525712 100644
+--- a/node_modules/aedes/lib/client.js
++++ b/node_modules/aedes/lib/client.js
+@@ -4,12 +4,12 @@ const mqtt = require('mqtt-packet')
+ const EventEmitter = require('events')
+ const util = require('util')
+ const eos = require('end-of-stream')
+-const Packet = require('aedes-packet')
+-const write = require('./write')
++const { Packet } = require('aedes-packet')
++const { write } = require('./write')
+ const QoSPacket = require('./qos-packet')
+-const handleSubscribe = require('./handlers/subscribe')
+-const handleUnsubscribe = require('./handlers/unsubscribe')
+-const handle = require('./handlers')
++const { handleSubscribe } = require('./handlers/subscribe')
++const { handleUnsubscribe } = require('./handlers/unsubscribe')
++const { handle } = require('./handlers')
+ const { pipeline } = require('stream')
+ const { through } = require('./utils')
+ 
+diff --git a/node_modules/aedes/lib/handlers/connect.js b/node_modules/aedes/lib/handlers/connect.js
+index a4c32d0..bd2d8cb 100644
+--- a/node_modules/aedes/lib/handlers/connect.js
++++ b/node_modules/aedes/lib/handlers/connect.js
+@@ -2,10 +2,10 @@
+ 
+ const retimer = require('retimer')
+ const { pipeline } = require('stream')
+-const write = require('../write')
++const { write } = require('../write')
+ const QoSPacket = require('../qos-packet')
+ const { through } = require('../utils')
+-const handleSubscribe = require('./subscribe')
++const { handleSubscribe } = require('./subscribe')
+ const uniqueId = require('hyperid')()
+ 
+ function Connack (arg) {
+@@ -264,4 +264,4 @@ function emptyQueueFilter (err, client, packet) {
+   }
+ }
+ 
+-module.exports = handleConnect
++module.exports = { handleConnect }
+diff --git a/node_modules/aedes/lib/handlers/index.js b/node_modules/aedes/lib/handlers/index.js
+index a5dfaa8..b611293 100644
+--- a/node_modules/aedes/lib/handlers/index.js
++++ b/node_modules/aedes/lib/handlers/index.js
+@@ -1,13 +1,13 @@
+ 'use strict'
+ 
+-const handleConnect = require('./connect')
+-const handleSubscribe = require('./subscribe')
+-const handleUnsubscribe = require('./unsubscribe')
+-const handlePublish = require('./publish')
+-const handlePuback = require('./puback')
+-const handlePubrel = require('./pubrel')
+-const handlePubrec = require('./pubrec')
+-const handlePing = require('./ping')
++const { handleConnect } = require('./connect')
++const { handleSubscribe } = require('./subscribe')
++const { handleUnsubscribe } = require('./unsubscribe')
++const { handlePublish } = require('./publish')
++const { handlePuback } = require('./puback')
++const { handlePubrel } = require('./pubrel')
++const { handlePubrec } = require('./pubrec')
++const { handlePing } = require('./ping')
+ 
+ function handle (client, packet, done) {
+   if (packet.cmd === 'connect') {
+@@ -74,4 +74,4 @@ function finish (conn, packet, done) {
+   done(error)
+ }
+ 
+-module.exports = handle
++module.exports = { handle }
+diff --git a/node_modules/aedes/lib/handlers/ping.js b/node_modules/aedes/lib/handlers/ping.js
+index a4c042c..69b3ded 100644
+--- a/node_modules/aedes/lib/handlers/ping.js
++++ b/node_modules/aedes/lib/handlers/ping.js
+@@ -1,6 +1,6 @@
+ 'use strict'
+ 
+-const write = require('../write')
++const { write } = require('../write')
+ const pingResp = {
+   cmd: 'pingresp'
+ }
+@@ -10,4 +10,4 @@ function handlePing (client, packet, done) {
+   write(client, pingResp, done)
+ }
+ 
+-module.exports = handlePing
++module.exports = { handlePing }
+diff --git a/node_modules/aedes/lib/handlers/puback.js b/node_modules/aedes/lib/handlers/puback.js
+index e4b419c..8376861 100644
+--- a/node_modules/aedes/lib/handlers/puback.js
++++ b/node_modules/aedes/lib/handlers/puback.js
+@@ -8,4 +8,4 @@ function handlePuback (client, packet, done) {
+   })
+ }
+ 
+-module.exports = handlePuback
++module.exports = { handlePuback }
+diff --git a/node_modules/aedes/lib/handlers/publish.js b/node_modules/aedes/lib/handlers/publish.js
+index e30c9db..5c3e167 100644
+--- a/node_modules/aedes/lib/handlers/publish.js
++++ b/node_modules/aedes/lib/handlers/publish.js
+@@ -1,6 +1,6 @@
+ 'use strict'
+ 
+-const write = require('../write')
++const { write } = require('../write')
+ 
+ function PubAck (packet) {
+   this.cmd = 'puback'
+@@ -62,4 +62,4 @@ function authorizePublish (packet, done) {
+   this.broker.authorizePublish(this, packet, done)
+ }
+ 
+-module.exports = handlePublish
++module.exports = { handlePublish }
+diff --git a/node_modules/aedes/lib/handlers/pubrec.js b/node_modules/aedes/lib/handlers/pubrec.js
+index 5c914dd..dc7a7f0 100644
+--- a/node_modules/aedes/lib/handlers/pubrec.js
++++ b/node_modules/aedes/lib/handlers/pubrec.js
+@@ -1,6 +1,6 @@
+ 'use strict'
+ 
+-const write = require('../write')
++const { write } = require('../write')
+ 
+ function PubRel (packet) {
+   this.cmd = 'pubrel'
+@@ -27,4 +27,4 @@ function handlePubrec (client, packet, done) {
+   }
+ }
+ 
+-module.exports = handlePubrec
++module.exports = { handlePubrec }
+diff --git a/node_modules/aedes/lib/handlers/pubrel.js b/node_modules/aedes/lib/handlers/pubrel.js
+index 09dcc86..672b697 100644
+--- a/node_modules/aedes/lib/handlers/pubrel.js
++++ b/node_modules/aedes/lib/handlers/pubrel.js
+@@ -1,6 +1,6 @@
+ 'use strict'
+ 
+-const write = require('../write')
++const { write } = require('../write')
+ 
+ function ClientPacketStatus (client, packet) {
+   this.client = client
+@@ -47,4 +47,4 @@ function pubrelDel (arg, done) {
+   persistence.incomingDelPacket(this.client, arg.packet, done)
+ }
+ 
+-module.exports = handlePubrel
++module.exports = { handlePubrel }
+diff --git a/node_modules/aedes/lib/handlers/subscribe.js b/node_modules/aedes/lib/handlers/subscribe.js
+index 2470427..d3e176e 100644
+--- a/node_modules/aedes/lib/handlers/subscribe.js
++++ b/node_modules/aedes/lib/handlers/subscribe.js
+@@ -4,7 +4,7 @@ const fastfall = require('fastfall')
+ const Packet = require('aedes-packet')
+ const { through } = require('../utils')
+ const { validateTopic, $SYS_PREFIX } = require('../utils')
+-const write = require('../write')
++const { write } = require('../write')
+ 
+ const subscribeTopicActions = fastfall([
+   authorize,
+@@ -245,4 +245,4 @@ function completeSubscribe (err) {
+ 
+ function noop () { }
+ 
+-module.exports = handleSubscribe
++module.exports = { handleSubscribe }
+diff --git a/node_modules/aedes/lib/handlers/unsubscribe.js b/node_modules/aedes/lib/handlers/unsubscribe.js
+index e08c317..b9cd7ef 100644
+--- a/node_modules/aedes/lib/handlers/unsubscribe.js
++++ b/node_modules/aedes/lib/handlers/unsubscribe.js
+@@ -1,6 +1,6 @@
+ 'use strict'
+ 
+-const write = require('../write')
++const { write } = require('../write')
+ const { validateTopic, $SYS_PREFIX } = require('../utils')
+ 
+ function UnSubAck (packet) {
+@@ -101,4 +101,4 @@ function completeUnsubscribe (err) {
+ 
+ function noop () { }
+ 
+-module.exports = handleUnsubscribe
++module.exports = { handleUnsubscribe }
+diff --git a/node_modules/aedes/lib/qos-packet.js b/node_modules/aedes/lib/qos-packet.js
+index 5527fe1..07c1581 100644
+--- a/node_modules/aedes/lib/qos-packet.js
++++ b/node_modules/aedes/lib/qos-packet.js
+@@ -1,6 +1,6 @@
+ 'use strict'
+ 
+-const Packet = require('aedes-packet')
++const { Packet } = require('aedes-packet')
+ const util = require('util')
+ 
+ function QoSPacket (original, client) {
+diff --git a/node_modules/aedes/lib/write.js b/node_modules/aedes/lib/write.js
+index 716d81a..a5d186c 100644
+--- a/node_modules/aedes/lib/write.js
++++ b/node_modules/aedes/lib/write.js
+@@ -21,4 +21,4 @@ function write (client, packet, done) {
+   setImmediate(done, error, client)
+ }
+ 
+-module.exports = write
++module.exports = { write }
