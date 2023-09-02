@@ -1,0 +1,39 @@
+{
+  "name": "aedes-otel-instrumentation",
+  "version": "0.0.0",
+  "description": "OpenTelemetry instrumentation library for Aedes MQTT broker",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moscajs/aedes-otel-instrumentation.git"
+  },
+  "keywords": [
+    "mqtt",
+    "otel",
+    "aedes"
+  ],
+  "author": "Edouard Maleix <https://github.com/getlarge>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/moscajs/aedes-otel-instrumentation/issues"
+  },
+  "homepage": "https://github.com/moscajs/aedes-otel-instrumentation#readme",
+  "dependencies": {
+    "@opentelemetry/instrumentation": "^0.41.2",
+    "@opentelemetry/semantic-conventions": "^1.15.2"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.5.8",
+    "aedes": "^0.50.0",
+    "aedes-packet": "^3.0.0",
+    "typescript": "^5.2.2"
+  }
+}
