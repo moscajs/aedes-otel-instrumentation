@@ -37,6 +37,7 @@ export interface AedesConsumeEndCustomAttributeFunction {
 }
 
 export interface AedesInstrumentationConfig extends InstrumentationConfig {
+  requireParentforIncomingSpans?: boolean
   /** hook for adding custom attributes before publish message is sent */
   publishHook?: AedesPublishCustomAttributeFunction
 

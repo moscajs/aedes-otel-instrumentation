@@ -8,7 +8,6 @@ import net from 'node:net'
 
 function createMqttClient(): Promise<mqtt.MqttClient> {
   const client = mqtt.connect('mqtt://localhost:1883')
-
   return new Promise((resolve) => {
     client.once('connect', () => {
       return resolve(client)
@@ -54,10 +53,8 @@ function createAedesServer(): Promise<Aedes> {
 }
 
 async function main() {
-  await createAedesServer()
+  const broker = await createAedesServer()
   const server = await createHttpServer()
-  const mqttClient1 = await createMqttClient()
-  const mqttClient2 = await createMqttClient()
 
   /**
    * create nested spans with:
@@ -65,28 +62,43 @@ async function main() {
    * 2. mqtt client 1 subscribe -> mqtt client 2 publish -> http client request on message -> http server response
    */
   server.on('request', async (req, res) => {
-    await mqttClient1
-      .publishAsync('topic', 'test', { qos: 0 })
-      .catch((error) => {
-        console.error(error)
-        res.end('error')
-      })
+    // console.log('on request ctx:', context.active())
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    // const mqttClient1 = await createMqttClient()
+    // await mqttClient1.endAsync(true)
+
     return res.end('ok')
   })
 
-  await createHttpClientRequest()
+  // await createHttpClientRequest()
   //
 
-  mqttClient1.once('message', (topic, payload) => {
-    console.log('message', topic, payload.toString())
+  const mqttClient1 = await createMqttClient()
+  broker.on('publish', () => {
+    // console.log('on publish ctx:', context.active())
+    // console.log(context.active(), ROOT_CONTEXT)
     createHttpClientRequest().catch((error) => {
       console.error(error)
       process.exit(1)
     })
   })
 
+  // mqttClient1.on('message', (topic, payload) => {
+  //   console.log('message', topic, payload.toString())
+  //   console.log('on message ctx:', context.active())
+
+  //   // console.log(context.active(), ROOT_CONTEXT)
+  //   createHttpClientRequest().catch((error) => {
+  //     console.error(error)
+  //     process.exit(1)
+  //   })
+  // })
   await mqttClient1.subscribeAsync('test')
-  await mqttClient2.publishAsync('test', 'test')
+
+  const mqttClient2 = await createMqttClient()
+  await mqttClient2.publishAsync('test', JSON.stringify({ message: 'test1' }))
+  // await mqttClient2.publishAsync('test', JSON.stringify({ message: 'test2' }))
 }
 
 main().catch((error) => {

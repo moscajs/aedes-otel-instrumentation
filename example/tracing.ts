@@ -5,10 +5,18 @@ import {
   BatchSpanProcessor,
   ConsoleSpanExporter,
 } from '@opentelemetry/sdk-trace-base'
+import {
+  PeriodicExportingMetricReader,
+  ConsoleMetricExporter,
+} from '@opentelemetry/sdk-metrics'
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
 import { AedesInstrumentation } from '../src/instrumentation'
+import { MqttPacketInstrumentation } from '../src'
 
 const traceExporter = new ConsoleSpanExporter()
+const metricReader = new PeriodicExportingMetricReader({
+  exporter: new ConsoleMetricExporter(),
+})
 
 const sdk = new NodeSDK({
   resource: new Resource({
@@ -18,23 +26,25 @@ const sdk = new NodeSDK({
     [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV,
   }),
   traceExporter,
+  metricReader,
   instrumentations: [
     getNodeAutoInstrumentations({
       '@opentelemetry/instrumentation-fs': {
         enabled: false,
       },
     }),
+    new MqttPacketInstrumentation(),
     new AedesInstrumentation({
       enabled: true,
-      publishHook: (span, info) => {
-        console.log('publishHook', info.packet)
-      },
-      consumeHook: (span, info) => {
-        console.log('consumeHook', info.packet)
-      },
-      consumeEndHook: (span, info) => {
-        console.log('consumeEndHook', info.packet)
-      },
+      // publishHook: (span, info) => {
+      //   console.log('publishHook', span)
+      // },
+      // consumeHook: (span, info) => {
+      //   console.log('consumeHook', span)
+      // },
+      // consumeEndHook: (span, info) => {
+      //   console.log('consumeEndHook', span)
+      // },
     }),
   ],
   spanProcessor: new BatchSpanProcessor(traceExporter),
