@@ -1,9 +1,5 @@
-import type { Attributes } from '@opentelemetry/api'
-import type {
-  CONNECTION_ATTRIBUTES,
-  PACKET_STORED_CONTEXT,
-  PACKET_STORED_SPAN,
-} from './utils'
+import type { Attributes, Span } from '@opentelemetry/api'
+import type { CONNECTION_ATTRIBUTES } from './utils'
 import type { AedesPacket } from 'aedes-packet'
 import type Aedes from 'aedes'
 import type {
@@ -15,24 +11,8 @@ import type {
   UnsubscribePacket,
 } from 'aedes'
 
-declare module 'mqtt-packet' {
-  interface IPublishPacket {
-    [PACKET_STORED_CONTEXT]?: {
-      traceparent?: unknown
-      tracestate?: unknown
-    }
-    [PACKET_STORED_SPAN]?: import('@opentelemetry/api').Span
-  }
-}
-
-declare module 'aedes-packet' {
-  interface IPacket {
-    [PACKET_STORED_CONTEXT]?: {
-      traceparent?: unknown
-      tracestate?: unknown
-    }
-    [PACKET_STORED_SPAN]?: import('@opentelemetry/api').Span
-  }
+export interface InstrumentationSpan extends Span {
+  name?: string
 }
 
 export type PacketFactory = (
