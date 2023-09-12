@@ -1,9 +1,10 @@
 // must be the first import
 import './tracing'
 
+import { context, trace } from '@opentelemetry/api'
 import Aedes from 'aedes'
 import * as mqtt from 'mqtt'
-import http from 'node:http'
+import http, { RequestOptions } from 'node:http'
 import net from 'node:net'
 
 function createMqttClient(): Promise<mqtt.MqttClient> {
@@ -15,14 +16,21 @@ function createMqttClient(): Promise<mqtt.MqttClient> {
   })
 }
 
-function createHttpClientRequest(): Promise<http.ClientRequest> {
-  return new Promise((resolve) => {
-    const req = http.request('http://localhost:3000', (res) => {
-      res.on('data', () => {})
-      res.on('end', () => {
-        return resolve(req)
-      })
+function createHttpClientRequest(
+  options: string | RequestOptions = 'http://localhost:3000',
+  data?: string | Uint8Array
+): Promise<http.ClientRequest> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(options, (res) => {
+      res
+        .setEncoding('utf8')
+        .on('data', () => {})
+        .on('end', () => resolve(req))
     })
+    req.on('error', (e) => reject(e))
+    if (data) {
+      req.write(data)
+    }
     req.end()
   })
 }
@@ -38,7 +46,32 @@ function createHttpServer(): Promise<http.Server> {
 }
 
 function createAedesServer(): Promise<Aedes> {
-  const broker = new Aedes({})
+  const broker = new Aedes({
+    preConnect: (client, packet, done) => {
+      const currentSpan = trace.getSpan(context.active())
+      currentSpan?.addEvent('preConnect', { clientId: client.id })
+      done(null, true)
+    },
+    authenticate: (client, username, password, done) => {
+      const currentSpan = trace.getSpan(context.active())
+      currentSpan?.addEvent('authenticate')
+      createHttpClientRequest(
+        {
+          method: 'POST',
+          host: 'localhost',
+          port: 3000,
+          path: '/authenticate',
+        },
+        JSON.stringify({ clientId: client.id, username, password })
+      )
+        .then(() => {
+          done(null, true)
+        })
+        .catch((error) => {
+          done(error, false)
+        })
+    },
+  })
   const tcpServer = net.createServer(broker.handle.bind(broker))
   // or  net.createServer((socket) => broker.handle(socket))
 
@@ -53,31 +86,16 @@ function createAedesServer(): Promise<Aedes> {
 }
 
 async function main() {
-  const broker = await createAedesServer()
   const server = await createHttpServer()
 
-  /**
-   * create nested spans with:
-   * 1. http client request -> mqtt client publish -> aedes consume -> http server response
-   * 2. mqtt client 1 subscribe -> mqtt client 2 publish -> http client request on message -> http server response
-   */
-  server.on('request', async (req, res) => {
-    // console.log('on request ctx:', context.active())
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    // const mqttClient1 = await createMqttClient()
-    // await mqttClient1.endAsync(true)
-
+  server.on('request', (req, res) => {
     return res.end('ok')
   })
 
-  // await createHttpClientRequest()
-  //
+  const broker = await createAedesServer()
 
   const mqttClient1 = await createMqttClient()
   broker.on('publish', () => {
-    // console.log('on publish ctx:', context.active())
-    // console.log(context.active(), ROOT_CONTEXT)
     createHttpClientRequest().catch((error) => {
       console.error(error)
       process.exit(1)
