@@ -1,4 +1,4 @@
-import { context } from '@opentelemetry/api'
+import { ROOT_CONTEXT, context } from '@opentelemetry/api'
 import {
   InstrumentationBase,
   InstrumentationConfig,
@@ -93,7 +93,7 @@ export class MqttPacketInstrumentation extends InstrumentationBase {
     ) {
       const parser = original.call(this, options)
       parser.prependListener('packet', (packet) => {
-        const parentCtx = getContextFromPacket(packet, options)
+        const parentCtx = getContextFromPacket(packet, ROOT_CONTEXT, options)
         if (!parentCtx) setContextInPacket(packet, context.active(), options)
       })
       //! or

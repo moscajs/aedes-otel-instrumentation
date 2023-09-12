@@ -3,6 +3,7 @@ import {
   Histogram,
   HrTime,
   INVALID_SPAN_CONTEXT,
+  ROOT_CONTEXT,
   Span,
   SpanKind,
   SpanOptions,
@@ -138,9 +139,8 @@ export class AedesInstrumentation extends InstrumentationBase {
     ctx = context.active()
   ) {
     const requireParent = this.getConfig().requireParentforIncomingSpans
-    let span: Span
     const currentSpan = trace.getSpan(ctx)
-
+    let span: Span
     if (requireParent && currentSpan === undefined) {
       span = trace.wrapSpanContext(INVALID_SPAN_CONTEXT)
     } else if (requireParent && currentSpan?.spanContext().isRemote) {
@@ -149,7 +149,6 @@ export class AedesInstrumentation extends InstrumentationBase {
       span = this.tracer.startSpan(name, options, ctx)
     }
     this._spanNotEnded.add(span)
-
     return span
   }
 
@@ -230,6 +229,8 @@ export class AedesInstrumentation extends InstrumentationBase {
         // TODO: use protocol decoder to determine remote address ?
         if (isNetSocket(stream)) {
           const address = stream.address()
+          client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_TRANSPORT] =
+            'tcp'
           client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_PEER_IP] =
             stream.remoteAddress
           client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_PEER_PORT] =
@@ -266,25 +267,36 @@ export class AedesInstrumentation extends InstrumentationBase {
       ...args: Parameters<Aedes['subscribe']>
     ) {
       const [topic, deliver] = args
-      const kind = SpanKind.CLIENT
-      // const deliver = args[1]
+      // still unclear how to set the kind https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/messaging/#span-kind
+      const kind = SpanKind.SERVER
       const attributes = {
         // TODO: retrieve the client (receiver) attributes
         // ...client[CONNECTION_ATTRIBUTES],
-        [SemanticAttributes.MESSAGING_DESTINATION]: topic,
-        [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
-          MessagingDestinationKindValues.TOPIC,
         [SemanticAttributes.MESSAGING_OPERATION]:
-          MessagingOperationValues.PROCESS,
+          MessagingOperationValues.RECEIVE,
+        [SemanticAttributes.MESSAGING_PROTOCOL]: 'mqtt',
+        // source attribute is present in semantic conventions but missing in implementation
+        // @see https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/messaging/
+        'messaging.source': topic,
+        'messaging.source.kind': MessagingDestinationKindValues.TOPIC,
       }
 
+      // const client = this.?
+
       function patchedDeliverFunc(
-        this: unknown,
+        this: unknown, // MQEmitter
         packet: AedesPublishPacket,
         callback: () => void
       ) {
-        // const client = broker.?
-        const parentContext = getContextFromPacket(packet)
+        // TODO: attributes[SemanticAttributes.MESSAGING_CONSUMER_ID] = packet.clientId
+        if (packet.messageId) {
+          attributes[SemanticAttributes.MESSAGING_MESSAGE_ID] =
+            packet.messageId.toString()
+        }
+        attributes[SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES] =
+          packet.payload.length.toString()
+        const currentContext = context.active()
+        const parentContext = getContextFromPacket(packet, currentContext)
         const startTime = hrTime()
         const span = instrumentation.startSpan(
           `${topic} receive`,
@@ -295,7 +307,7 @@ export class AedesInstrumentation extends InstrumentationBase {
           parentContext
         )
 
-        const currentContext = trace.setSpan(
+        const messageContext = trace.setSpan(
           parentContext || context.active(),
           span
         )
@@ -304,21 +316,16 @@ export class AedesInstrumentation extends InstrumentationBase {
         function wrappedCallback(this: unknown) {
           instrumentation.callConsumeEndHook(span, packet, null)
           instrumentation.endSpan(span, kind, startTime)
-          // const cb = context.bind(currentContext, callback)
-          // cb.apply(this)
-          callback.call(this)
+          const cb = context.bind(messageContext, callback)
+          cb.apply(this)
         }
 
         // TODO depending on QoS :
         // - span should be ended in this function for QoS 0 and 1
         // - span should be ended in packet ack for QoS 2
 
-        // context.with(ctx, () => {
-        //   deliver.call(this, packet, wrappedCallback)
-        // })
-
         return context.with(
-          currentContext,
+          messageContext,
           deliver,
           this,
           packet,
@@ -327,8 +334,7 @@ export class AedesInstrumentation extends InstrumentationBase {
       }
 
       args[1] = patchedDeliverFunc
-
-      return original.apply(this, args)
+      return context.with(context.active(), original, this, ...args)
     }
   }
 
@@ -403,8 +409,7 @@ export class AedesInstrumentation extends InstrumentationBase {
       const kind = SpanKind.INTERNAL
       const attributes = {
         ...client[CONNECTION_ATTRIBUTES],
-        [SemanticAttributes.MESSAGING_CONSUMER_ID]: packet.clientId,
-        [SemanticAttributes.MESSAGING_PROTOCOL]: 'MQTT',
+        [SemanticAttributes.MESSAGING_PROTOCOL]: 'mqtt',
         [SemanticAttributes.MESSAGING_PROTOCOL_VERSION]:
           packet.protocolVersion === 3
             ? '3.1'
@@ -420,7 +425,7 @@ export class AedesInstrumentation extends InstrumentationBase {
        * with previous version there's no way to retreive the parent context
        * since OTEL recommands to store in payload the traceparent and tracestate and there's no payload in MQTT connect packet
        */
-      const parent = getContextFromPacket(packet, {
+      const parentContext = getContextFromPacket(packet, ROOT_CONTEXT, {
         protocolVersion: packet.protocolVersion,
       })
       const span = instrumentation.startSpan(
@@ -429,11 +434,14 @@ export class AedesInstrumentation extends InstrumentationBase {
           kind,
           attributes,
         },
-        parent
+        parentContext
       )
       const startTime = hrTime()
       const metricAttributes = getMetricAttributes(attributes)
-      const ctx = parent ? trace.setSpan(parent, span) : context.active()
+      const connectionContext = trace.setSpan(
+        parentContext || context.active(),
+        span
+      )
 
       function wrappedCallback(this: unknown, err?: Error) {
         if (!err) {
@@ -443,20 +451,18 @@ export class AedesInstrumentation extends InstrumentationBase {
           setSpanWithError(span, err)
         }
         instrumentation.endSpan(span, kind, startTime, metricAttributes)
-        // if (parent) {
-        //   return context.with(parent, done.bind(this), err)
-        // }
-        // const cb = context.bind(context.active(), done)
-        // cb.call(this, err)
-        done.call(this, err)
+        const cb = context.bind(connectionContext, done)
+        cb.call(this, err)
       }
 
-      // return context.with(ctx, () => {
-      //   context.bind(parent || context.active(), done)
-      //   context.bind(context.active(), client)
-      //   return original.call(this, client, packet, wrappedCallback)
-      // })
-      return context.with(ctx, original, this, client, packet, wrappedCallback)
+      return context.with(
+        connectionContext,
+        original,
+        this,
+        client,
+        packet,
+        wrappedCallback
+      )
     }
   }
 
@@ -503,11 +509,11 @@ export class AedesInstrumentation extends InstrumentationBase {
       packet: AedesPublishPacket | PublishPacket,
       done: (err?: Error) => void
     ) {
-      // ? maybe the span should be created before calling original's callback ?
+      // TODO: on puback get Span with trace.getSpan(context.active()), call span.addEvent('puback') and callEndPublishHook
       const startTime = hrTime()
       const { topic } = packet
-      const kind = client.id ? SpanKind.CLIENT : SpanKind.SERVER
-      const span = instrumentation.startSpan(`${topic} send`, {
+      const kind = SpanKind.SERVER
+      const span = instrumentation.startSpan(`${topic} publish`, {
         kind,
         attributes: {
           ...client[CONNECTION_ATTRIBUTES],
@@ -515,12 +521,14 @@ export class AedesInstrumentation extends InstrumentationBase {
           [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
             MessagingDestinationKindValues.TOPIC,
           [SemanticAttributes.MESSAGING_MESSAGE_ID]: packet.messageId,
+          [SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES]:
+            packet.payload.length.toString(),
         },
       })
       const parentContext = context.active()
       //? const parentContext = getContextFromPacket(packet) ?? context.active()
-      const packetContext = trace.setSpan(parentContext, span)
-      setContextInPacket(packet, packetContext, {
+      const messageContext = trace.setSpan(parentContext, span)
+      setContextInPacket(packet, messageContext, {
         protocolVersion: client.version,
       })
 
@@ -538,11 +546,14 @@ export class AedesInstrumentation extends InstrumentationBase {
         done.call(this, err)
       }
 
-      return context.with(packetContext, () => {
-        const cb = context.bind(parentContext, callbackOverride)
-        return original.call(this, client, packet, cb)
-      })
-      // return original.call(this, client, packet, callbackOverride)
+      return context.with(
+        messageContext,
+        original,
+        this,
+        client,
+        packet,
+        callbackOverride
+      )
     }
   }
   // #endregion

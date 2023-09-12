@@ -21,12 +21,10 @@ export const CONNECTION_ATTRIBUTES: unique symbol = Symbol(
 
 export const setSpanWithError = (span: Span, error: Error): void => {
   const message = error.message
-
   span?.setAttributes({
     // [AttributeNames.HTTP_ERROR_NAME]: error.name,
     // [AttributeNames.HTTP_ERROR_MESSAGE]: message,
   })
-
   span?.setStatus({ code: SpanStatusCode.ERROR, message })
   span?.recordException(error)
 }
@@ -71,6 +69,7 @@ function getPacketProtocolVersion(packet: Packet): number {
 
 export function getContextFromPacket(
   packet: Packet,
+  ctx = ROOT_CONTEXT,
   options: {
     protocolVersion?: number
   } = {}
@@ -84,13 +83,14 @@ export function getContextFromPacket(
     packet.properties &&
     'userProperties' in packet.properties
   ) {
-    return propagation.extract(ROOT_CONTEXT, packet.properties.userProperties)
+    return propagation.extract(ctx, packet.properties.userProperties)
   } else if ('payload' in packet) {
     // TODO: improve context extraction from payload
     try {
       const payload = JSON.parse(packet.payload.toString())
-      return propagation.extract(ROOT_CONTEXT, payload)
+      return propagation.extract(ctx, payload)
     } catch (e) {
+      // TODO: consider https://w3c.github.io/trace-context-binary/#de-serialization-algorithms if not JSON
       return undefined
     }
   }
@@ -118,12 +118,13 @@ export function setContextInPacket(
   ) {
     propagation.inject(ctx, packet.properties.userProperties)
   } else if ('payload' in packet) {
-    // TODO: ensure to not mutate original packet.payload
     try {
       const payload = JSON.parse(packet.payload.toString())
       propagation.inject(ctx, payload)
+      // TODO: ensure to not mutate original packet.payload
       packet.payload = JSON.stringify(payload)
     } catch (e) {
+      // TODO: consider https://w3c.github.io/trace-context-binary/#serialization-of-traceparent if not JSON
       // ignore
     }
   }
