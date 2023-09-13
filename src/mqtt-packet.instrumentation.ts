@@ -92,6 +92,7 @@ export class MqttPacketInstrumentation extends InstrumentationBase {
       options?: { protocolVersion?: number }
     ) {
       const parser = original.call(this, options)
+      // we want to ensure this is the first listener so that all other listeners will have the context set in the packet
       parser.prependListener('packet', (packet) => {
         const parentCtx = getContextFromPacket(packet, ROOT_CONTEXT, options)
         if (!parentCtx) setContextInPacket(packet, context.active(), options)

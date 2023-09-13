@@ -49,6 +49,7 @@ import {
   setContextInPacket,
   setSpanWithError,
 } from './utils'
+import { AedesAttributes } from './constants'
 
 export class AedesInstrumentation extends InstrumentationBase {
   protected override _config!: AedesInstrumentationConfig
@@ -220,13 +221,16 @@ export class AedesInstrumentation extends InstrumentationBase {
 
       const setHostAttributes = () => {
         client[CONNECTION_ATTRIBUTES] = {
-          [SemanticAttributes.MESSAGING_SYSTEM]: 'aedes',
+          [SemanticAttributes.MESSAGING_SYSTEM]:
+            AedesAttributes.MESSAGING_SYSTEM,
+          [AedesAttributes.BROKER_ID]: this.id,
+          [AedesAttributes.CLIENT_ID]: client.id,
           [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
             MessagingDestinationKindValues.TOPIC,
           // How to get the broker URL?
           [SemanticAttributes.MESSAGING_URL]: '',
         }
-        // TODO: use protocol decoder to determine remote address ?
+        // TODO: use protocol decoder to determine connection properties (including MESSAGING_URL) ?
         if (isNetSocket(stream)) {
           const address = stream.address()
           client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_TRANSPORT] =
@@ -272,9 +276,12 @@ export class AedesInstrumentation extends InstrumentationBase {
       const attributes = {
         // TODO: retrieve the client (receiver) attributes
         // ...client[CONNECTION_ATTRIBUTES],
+        [SemanticAttributes.MESSAGING_SYSTEM]: AedesAttributes.MESSAGING_SYSTEM,
+        [AedesAttributes.BROKER_ID]: this.id,
         [SemanticAttributes.MESSAGING_OPERATION]:
           MessagingOperationValues.RECEIVE,
-        [SemanticAttributes.MESSAGING_PROTOCOL]: 'mqtt',
+        [SemanticAttributes.MESSAGING_PROTOCOL]:
+          AedesAttributes.MESSAGING_PROTOCOL,
         // source attribute is present in semantic conventions but missing in implementation
         // @see https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/messaging/
         'messaging.source': topic,
@@ -409,7 +416,9 @@ export class AedesInstrumentation extends InstrumentationBase {
       const kind = SpanKind.INTERNAL
       const attributes = {
         ...client[CONNECTION_ATTRIBUTES],
-        [SemanticAttributes.MESSAGING_PROTOCOL]: 'mqtt',
+        [AedesAttributes.CLIENT_ID]: client.id,
+        [SemanticAttributes.MESSAGING_PROTOCOL]:
+          AedesAttributes.MESSAGING_PROTOCOL,
         [SemanticAttributes.MESSAGING_PROTOCOL_VERSION]:
           packet.protocolVersion === 3
             ? '3.1'
