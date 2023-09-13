@@ -195,7 +195,35 @@ export class AedesInstrumentation extends InstrumentationBase {
         this.getAedesSubscribePatch.bind(this)
       )
     }
-    // TODO: how to patch preconnect ?
+    if (!this.isWrapped(moduleExports.prototype, 'preConnect')) {
+      this._wrap(
+        moduleExports.prototype,
+        'preConnect',
+        this.getAedesPreConnectPatch.bind(this)
+      )
+    }
+    if (!this.isWrapped(moduleExports.prototype, 'authenticate')) {
+      this._wrap(
+        moduleExports.prototype,
+        'authenticate',
+        this.getAedesAuthenticatePatch.bind(this)
+      )
+    }
+    if (!this.isWrapped(moduleExports.prototype, 'authorizePublish')) {
+      this._wrap(
+        moduleExports.prototype,
+        'authorizePublish',
+        this.getAedesAuthorizePublishPatch.bind(this)
+      )
+    }
+    if (!this.isWrapped(moduleExports.prototype, 'authorizeSubscribe')) {
+      this._wrap(
+        moduleExports.prototype,
+        'authorizeSubscribe',
+        this.getAedesAuthorizeSubscribePatch.bind(this)
+      )
+    }
+
     return moduleExports
   }
 
@@ -206,6 +234,19 @@ export class AedesInstrumentation extends InstrumentationBase {
     if (isWrapped(moduleExports.prototype.subscribe)) {
       this._unwrap(moduleExports.prototype, 'subscribe')
     }
+    if (isWrapped(moduleExports.prototype.preConnect)) {
+      this._unwrap(moduleExports.prototype, 'preConnect')
+    }
+    if (isWrapped(moduleExports.prototype.authenticate)) {
+      this._unwrap(moduleExports.prototype, 'authenticate')
+    }
+    if (isWrapped(moduleExports.prototype.authorizePublish)) {
+      this._unwrap(moduleExports.prototype, 'authorizePublish')
+    }
+    if (isWrapped(moduleExports.prototype.authorizeSubscribe)) {
+      this._unwrap(moduleExports.prototype, 'authorizeSubscribe')
+    }
+
     return moduleExports
   }
 
@@ -379,6 +420,60 @@ export class AedesInstrumentation extends InstrumentationBase {
       },
       true
     )
+  }
+
+  private getAedesPreConnectPatch(original: Aedes['preConnect']) {
+    return function patchedPreConnect(
+      this: Aedes,
+      ...args: Parameters<Aedes['preConnect']>
+    ) {
+      const span = trace.getSpan(context.active())
+      span?.addEvent('preConnect', {
+        [AedesAttributes.CLIENT_ID]: args[0].id,
+      })
+      return original.apply(this, args)
+    }
+  }
+
+  private getAedesAuthenticatePatch(original: Aedes['authenticate']) {
+    return function patchedAuthenticate(
+      this: Aedes,
+      ...args: Parameters<Aedes['authenticate']>
+    ) {
+      const span = trace.getSpan(context.active())
+      span?.addEvent('authenticate', {
+        [AedesAttributes.CLIENT_ID]: args[0].id,
+      })
+      return original.apply(this, args)
+    }
+  }
+
+  private getAedesAuthorizePublishPatch(original: Aedes['authorizePublish']) {
+    return function patchedAuthorizePublish(
+      this: Aedes,
+      ...args: Parameters<Aedes['authorizePublish']>
+    ) {
+      const span = trace.getSpan(context.active())
+      span?.addEvent('authorizePublish', {
+        ...(args[0] ? { [AedesAttributes.CLIENT_ID]: args[0].id } : {}),
+      })
+      return original.apply(this, args)
+    }
+  }
+
+  private getAedesAuthorizeSubscribePatch(
+    original: Aedes['authorizeSubscribe']
+  ) {
+    return function patchedAuthorizeSubscribe(
+      this: Aedes,
+      ...args: Parameters<Aedes['authorizeSubscribe']>
+    ) {
+      const span = trace.getSpan(context.active())
+      span?.addEvent('authorizeSubscribe', {
+        [AedesAttributes.CLIENT_ID]: args[0].id,
+      })
+      return original.apply(this, args)
+    }
   }
 
   // #endregion
