@@ -1,5 +1,5 @@
 diff --git a/node_modules/aedes/aedes.js b/node_modules/aedes/aedes.js
-index c02d289..5fe76b6 100644
+index c02d289..668b162 100644
 --- a/node_modules/aedes/aedes.js
 +++ b/node_modules/aedes/aedes.js
 @@ -7,7 +7,7 @@ const series = require('fastseries')
@@ -19,7 +19,7 @@ index c02d289..5fe76b6 100644
    this.queueLimit = opts.queueLimit
    this.connectTimeout = opts.connectTimeout
    this.maxClientsIdLength = opts.maxClientsIdLength
-@@ -52,12 +53,7 @@ function Aedes (opts) {
+@@ -52,24 +53,19 @@ function Aedes (opts) {
      concurrency: opts.concurrency,
      matchEmptyLevels: true // [MQTT-4.7.1-3]
    })
@@ -33,10 +33,30 @@ index c02d289..5fe76b6 100644
    this.persistence = opts.persistence || memory()
    this.persistence.broker = this
    this._parallel = parallel()
-@@ -250,6 +246,13 @@ function removeSharp (sub) {
+   this._series = series()
+   this._enqueuers = reusify(DoEnqueues)
+ 
+-  this.preConnect = opts.preConnect
+-  this.authenticate = opts.authenticate
+-  this.authorizePublish = opts.authorizePublish
+-  this.authorizeSubscribe = opts.authorizeSubscribe
+-  this.authorizeForward = opts.authorizeForward
+-  this.published = opts.published
++  this._preConnect = opts.preConnect
++  this._authenticate = opts.authenticate
++  this._authorizePublish = opts.authorizePublish
++  this._authorizeSubscribe = opts.authorizeSubscribe
++  this._authorizeForward = opts.authorizeForward
++  this._published = opts.published
+ 
+   this.decodeProtocol = opts.decodeProtocol
+   this.trustProxy = opts.trustProxy
+@@ -250,6 +246,15 @@ function removeSharp (sub) {
    return code !== 43 && code !== 35
  }
  
++// assiging to prototype is a breaking change as it is required to bind the Aedes instance to the function
++// @example net.createServer(broker.handle.bind(broker)) or net.createServer((socket) => broker.handle(socket))
 +Aedes.prototype.handle = function handle (conn, req) {
 +    conn.setMaxListeners(this.concurrency * 2)
 +    // create a new Client instance for a new connection
@@ -47,6 +67,37 @@ index c02d289..5fe76b6 100644
  function callPublished (_, done) {
    this.broker.published(this.packet, this.client, done)
    this.broker.emit('publish', this.packet, this.client)
+@@ -338,6 +343,30 @@ Aedes.prototype.close = function (cb = noop) {
+ 
+ Aedes.prototype.version = require('./package.json').version
+ 
++Aedes.prototype.preConnect = function (client, packet, callback) {
++  this._preConnect(client, packet, callback)
++}
++
++Aedes.prototype.authenticate = function (client, username, password, callback) {
++  this._authenticate(client, username, password, callback)
++}
++
++Aedes.prototype.authorizePublish = function (client, packet, callback) {
++  this._authorizePublish(client, packet, callback)
++}
++
++Aedes.prototype.authorizeSubscribe = function (client, sub, callback) {
++  this._authorizeSubscribe(client, sub, callback)
++}
++
++Aedes.prototype.authorizeForward = function (client, packet) {
++  return this._authorizeForward(client, packet)
++}
++
++Aedes.prototype.published = function (packet, client, callback) {
++  this._published(packet, client, callback)
++}
++
+ function defaultPreConnect (client, packet, callback) {
+   callback(null, true)
+ }
 diff --git a/node_modules/aedes/lib/client.js b/node_modules/aedes/lib/client.js
 index 414d8e5..e525712 100644
 --- a/node_modules/aedes/lib/client.js
