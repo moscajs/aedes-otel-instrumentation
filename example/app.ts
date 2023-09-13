@@ -1,7 +1,6 @@
-// must be the first import
+// tracing must be the first import
 import './tracing'
 
-import { context, trace } from '@opentelemetry/api'
 import Aedes from 'aedes'
 import * as mqtt from 'mqtt'
 import http, { RequestOptions } from 'node:http'
@@ -48,13 +47,9 @@ function createHttpServer(): Promise<http.Server> {
 function createAedesServer(): Promise<Aedes> {
   const broker = new Aedes({
     preConnect: (client, packet, done) => {
-      const currentSpan = trace.getSpan(context.active())
-      currentSpan?.addEvent('preConnect', { clientId: client.id })
       done(null, true)
     },
     authenticate: (client, username, password, done) => {
-      const currentSpan = trace.getSpan(context.active())
-      currentSpan?.addEvent('authenticate')
       createHttpClientRequest(
         {
           method: 'POST',
@@ -93,30 +88,25 @@ async function main() {
   })
 
   const broker = await createAedesServer()
-
   const mqttClient1 = await createMqttClient()
-  broker.on('publish', () => {
+  const mqttClient2 = await createMqttClient()
+
+  broker.on('publish', (packet) => {
+    if (packet.topic.startsWith('$SYS')) {
+      return
+    }
+    // console.log('publish', packet)
     createHttpClientRequest().catch((error) => {
       console.error(error)
       process.exit(1)
     })
   })
 
-  // mqttClient1.on('message', (topic, payload) => {
-  //   console.log('message', topic, payload.toString())
-  //   console.log('on message ctx:', context.active())
+  await mqttClient1.publishAsync('test', JSON.stringify({ message: 'test1' }))
 
-  //   // console.log(context.active(), ROOT_CONTEXT)
-  //   createHttpClientRequest().catch((error) => {
-  //     console.error(error)
-  //     process.exit(1)
-  //   })
-  // })
   await mqttClient1.subscribeAsync('test')
-
-  const mqttClient2 = await createMqttClient()
   await mqttClient2.publishAsync('test', JSON.stringify({ message: 'test1' }))
-  // await mqttClient2.publishAsync('test', JSON.stringify({ message: 'test2' }))
+  await mqttClient2.publishAsync('test', JSON.stringify({ message: 'test2' }))
 }
 
 main().catch((error) => {

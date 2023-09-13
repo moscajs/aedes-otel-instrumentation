@@ -11,14 +11,6 @@ import { SemanticAttributes } from '@opentelemetry/semantic-conventions'
 import type { Packet } from 'mqtt-packet'
 import { type AddressInfo, Socket as NetSocket } from 'node:net'
 
-export const CLIENT_SPANS_NOT_ENDED: unique symbol = Symbol(
-  'opentelemetry.aedes.client.spans-not-ended'
-)
-
-export const CONNECTION_ATTRIBUTES: unique symbol = Symbol(
-  'opentelemetry.aedes.connection.attributes'
-)
-
 export const setSpanWithError = (span: Span, error: Error): void => {
   const message = error.message
   span?.setAttributes({

@@ -39,9 +39,13 @@ import type {
 import type { IncomingMessage } from 'node:http'
 
 import { AedesInstrumentationConfig, PublishInfo } from './types'
-import { AedesClient, HandleConnect, HandlePublish } from './internal-types'
 import {
-  CONNECTION_ATTRIBUTES,
+  AedesClient,
+  HandleConnect,
+  HandlePublish,
+  HandleSubscribe,
+} from './internal-types'
+import {
   getContextFromPacket,
   getMetricAttributes,
   isNetSocket,
@@ -49,7 +53,11 @@ import {
   setContextInPacket,
   setSpanWithError,
 } from './utils'
-import { AedesAttributes } from './constants'
+import {
+  AedesAttributes,
+  CLIENT_CONTEXT_KEY,
+  CONNECTION_ATTRIBUTES,
+} from './constants'
 
 export class AedesInstrumentation extends InstrumentationBase {
   protected override _config!: AedesInstrumentationConfig
@@ -117,6 +125,13 @@ export class AedesInstrumentation extends InstrumentationBase {
       this.unpatchHandlePublish.bind(this)
     )
 
+    const handleSubscribeModuleFile = new InstrumentationNodeModuleFile(
+      'aedes/lib/handlers/subscribe.js',
+      ['>=0.5.0'],
+      this.patchHandleSubscribe.bind(this),
+      this.unpatchHandleSubscribe.bind(this)
+    )
+
     // TODO: patch aedes/lib/write to attach event to span created during publish
 
     const aedesModule = new InstrumentationNodeModuleDefinition<typeof Aedes>(
@@ -124,7 +139,11 @@ export class AedesInstrumentation extends InstrumentationBase {
       ['>=0.5.0'],
       this.patchAedes.bind(this),
       this.unpatchAedes.bind(this),
-      [handleConnectModuleFile, handlePublishModuleFile]
+      [
+        handleConnectModuleFile,
+        handlePublishModuleFile,
+        handleSubscribeModuleFile,
+      ]
     )
 
     return [aedesModule]
@@ -261,16 +280,7 @@ export class AedesInstrumentation extends InstrumentationBase {
       instrumentation._diag.debug(`instrumentation incoming connection`)
 
       const setHostAttributes = () => {
-        client[CONNECTION_ATTRIBUTES] = {
-          [SemanticAttributes.MESSAGING_SYSTEM]:
-            AedesAttributes.MESSAGING_SYSTEM,
-          [AedesAttributes.BROKER_ID]: this.id,
-          [AedesAttributes.CLIENT_ID]: client.id,
-          [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
-            MessagingDestinationKindValues.TOPIC,
-          // How to get the broker URL?
-          [SemanticAttributes.MESSAGING_URL]: '',
-        }
+        client[CONNECTION_ATTRIBUTES] = {}
         // TODO: use protocol decoder to determine connection properties (including MESSAGING_URL) ?
         if (isNetSocket(stream)) {
           const address = stream.address()
@@ -290,6 +300,18 @@ export class AedesInstrumentation extends InstrumentationBase {
             ] = `IP.${address.family}`
           }
         }
+
+        client[CONNECTION_ATTRIBUTES] = {
+          ...client[CONNECTION_ATTRIBUTES],
+          [SemanticAttributes.MESSAGING_SYSTEM]:
+            AedesAttributes.MESSAGING_SYSTEM,
+          [AedesAttributes.BROKER_ID]: this.id,
+          [AedesAttributes.CLIENT_ID]: client.id,
+          [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
+            MessagingDestinationKindValues.TOPIC,
+          // How to get the broker URL?
+          [SemanticAttributes.MESSAGING_URL]: '',
+        }
       }
 
       const client = original.call(this, stream, request) as AedesClient
@@ -300,10 +322,6 @@ export class AedesInstrumentation extends InstrumentationBase {
     }
   }
 
-  /**
-   *
-   * This function should be called before `getSubscribePatch`
-   */
   private getAedesSubscribePatch(original: Aedes['subscribe']) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const instrumentation = this
@@ -314,11 +332,15 @@ export class AedesInstrumentation extends InstrumentationBase {
       const [topic, deliver] = args
       // still unclear how to set the kind https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/messaging/#span-kind
       const kind = SpanKind.SERVER
+      const handleSubscribeCtx = context.active()
+      const client = handleSubscribeCtx.getValue(
+        CLIENT_CONTEXT_KEY
+      ) as AedesClient
       const attributes = {
-        // TODO: retrieve the client (receiver) attributes
-        // ...client[CONNECTION_ATTRIBUTES],
+        ...client[CONNECTION_ATTRIBUTES],
         [SemanticAttributes.MESSAGING_SYSTEM]: AedesAttributes.MESSAGING_SYSTEM,
         [AedesAttributes.BROKER_ID]: this.id,
+        [AedesAttributes.CLIENT_ID]: client.id,
         [SemanticAttributes.MESSAGING_OPERATION]:
           MessagingOperationValues.RECEIVE,
         [SemanticAttributes.MESSAGING_PROTOCOL]:
@@ -329,21 +351,19 @@ export class AedesInstrumentation extends InstrumentationBase {
         'messaging.source.kind': MessagingDestinationKindValues.TOPIC,
       }
 
-      // const client = this.?
-
       function patchedDeliverFunc(
-        this: unknown, // MQEmitter
+        this: unknown, // default to MQEmitter
         packet: AedesPublishPacket,
         callback: () => void
       ) {
-        // TODO: attributes[SemanticAttributes.MESSAGING_CONSUMER_ID] = packet.clientId
+        const currentContext = context.active()
         if (packet.messageId) {
           attributes[SemanticAttributes.MESSAGING_MESSAGE_ID] =
             packet.messageId.toString()
         }
         attributes[SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES] =
           packet.payload.length.toString()
-        const currentContext = context.active()
+
         const parentContext = getContextFromPacket(packet, currentContext)
         const startTime = hrTime()
         const span = instrumentation.startSpan(
@@ -621,6 +641,7 @@ export class AedesInstrumentation extends InstrumentationBase {
         kind,
         attributes: {
           ...client[CONNECTION_ATTRIBUTES],
+          [AedesAttributes.CLIENT_ID]: client.id,
           [SemanticAttributes.MESSAGING_DESTINATION]: topic,
           [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
             MessagingDestinationKindValues.TOPIC,
@@ -660,5 +681,39 @@ export class AedesInstrumentation extends InstrumentationBase {
       )
     }
   }
+
+  private patchHandleSubscribe(moduleExports: HandleSubscribe) {
+    this.unpatchHandleSubscribe(moduleExports)
+    if (!this.isWrapped(moduleExports, 'handleSubscribe')) {
+      this._wrap(
+        moduleExports,
+        'handleSubscribe',
+        this.getHandleSubscribePatch.bind(this)
+      )
+    }
+    return moduleExports
+  }
+
+  private unpatchHandleSubscribe(moduleExports?: HandleSubscribe) {
+    if (moduleExports && this.isWrapped(moduleExports, 'handleSubscribe')) {
+      this._unwrap(moduleExports, 'handleSubscribe')
+    }
+    return moduleExports
+  }
+
+  private getHandleSubscribePatch(
+    original: HandleSubscribe['handleSubscribe']
+  ) {
+    return function patchedHandleSubscribe(
+      this: unknown,
+      ...args: Parameters<HandleSubscribe['handleSubscribe']>
+    ) {
+      const [client] = args
+      const currentContext = context.active()
+      const newContext = currentContext.setValue(CLIENT_CONTEXT_KEY, client)
+      return context.with(newContext, original, this, ...args)
+    }
+  }
+
   // #endregion
 }
