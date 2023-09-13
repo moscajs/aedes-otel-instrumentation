@@ -1,4 +1,7 @@
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
+// import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
+// import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
+
 import { Resource } from '@opentelemetry/resources'
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import {
@@ -13,9 +16,20 @@ import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
 import { AedesInstrumentation } from '../src/instrumentation'
 import { MqttPacketInstrumentation } from '../src'
 
+// Outputs to Jaeger
+// const traceExporter = new OTLPTraceExporter({
+//   url: 'http://localhost:4318/v1/traces',
+// })
+// const metricExporter = new OTLPMetricExporter({
+//   url: 'http://localhost:4318/v1/metrics',
+// })
+
+// Outputs to STDOUT
 const traceExporter = new ConsoleSpanExporter()
+const metricExporter = new ConsoleMetricExporter()
+
 const metricReader = new PeriodicExportingMetricReader({
-  exporter: new ConsoleMetricExporter(),
+  exporter: metricExporter,
 })
 
 const sdk = new NodeSDK({

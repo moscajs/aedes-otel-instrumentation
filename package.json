@@ -34,6 +34,8 @@
   },
   "devDependencies": {
     "@opentelemetry/auto-instrumentations-node": "^0.39.2",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.43.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.43.0",
     "@opentelemetry/resources": "^1.15.2",
     "@opentelemetry/sdk-node": "^0.41.2",
     "@opentelemetry/sdk-trace-base": "^1.15.2",
