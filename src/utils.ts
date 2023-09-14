@@ -149,7 +149,7 @@ export function getClientTransport(
   if (isTls) {
     return isWebsocket ? 'wss' : 'mqtts'
   }
-  return isWebsocket ? 'ws' : 'mqtts'
+  return isWebsocket ? 'ws' : 'mqtt'
 }
 
 // TODO: refine to include full URL (pathname)

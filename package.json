@@ -5,10 +5,13 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --loader tsx --test test/*.spec.ts",
     "lint": "eslint . --ext .ts",
     "prettier": "prettier --write .",
     "build": "tsc"
+  },
+  "engines": {
+    "node": ">=18.17.0"
   },
   "repository": {
     "type": "git",
@@ -49,6 +52,7 @@
     "mqtt": "^5.0.4",
     "patch-package": "^8.0.0",
     "prettier": "^3.0.3",
+    "tsx": "^3.12.10",
     "typescript": "^5.2.2"
   }
 }
