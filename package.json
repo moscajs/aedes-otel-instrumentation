@@ -44,6 +44,7 @@
     "@typescript-eslint/parser": "^6.5.0",
     "aedes": "^0.50.0",
     "aedes-packet": "^3.0.0",
+    "aedes-protocol-decoder": "^2.1.0",
     "eslint": "^8.48.0",
     "mqtt": "^5.0.4",
     "patch-package": "^8.0.0",
