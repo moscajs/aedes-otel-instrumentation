@@ -27,6 +27,7 @@ import {
 import {
   MessagingDestinationKindValues,
   MessagingOperationValues,
+  NetTransportValues,
   SemanticAttributes,
 } from '@opentelemetry/semantic-conventions'
 import type Aedes from 'aedes'
@@ -63,7 +64,7 @@ export class AedesInstrumentation extends InstrumentationBase {
   protected override _config!: AedesInstrumentationConfig
   private _mqttBrokerDurationHistogram!: Histogram
   private _mqttClientDurationHistogram!: Histogram
-  readonly _spanNotEnded = new WeakSet<Span>()
+  readonly _spanNotEnded = new Map<string, Set<Span>>()
 
   constructor(
     config: AedesInstrumentationConfig = {
@@ -132,8 +133,6 @@ export class AedesInstrumentation extends InstrumentationBase {
       this.unpatchHandleSubscribe.bind(this)
     )
 
-    // TODO: patch aedes/lib/write to attach event to span created during publish
-
     const aedesModule = new InstrumentationNodeModuleDefinition<typeof Aedes>(
       'aedes',
       ['>=0.5.0'],
@@ -153,9 +152,46 @@ export class AedesInstrumentation extends InstrumentationBase {
 
   // #region span management
 
+  private addClientSpan(client: AedesClient, span: Span) {
+    const clientId = client.id
+    if (!this._spanNotEnded.has(clientId)) {
+      this._spanNotEnded.set(clientId, new Set())
+    }
+    this._spanNotEnded.get(clientId)?.add(span)
+  }
+
+  private hasClientSpan(client: AedesClient, span: Span) {
+    const clientId = client.id
+    if (!this._spanNotEnded.has(clientId)) {
+      return false
+    }
+    return this._spanNotEnded.get(clientId)?.has(span)
+  }
+
+  private removeClientSpan(client: AedesClient, span: Span) {
+    const clientId = client.id
+    if (!this._spanNotEnded.has(clientId)) {
+      return
+    }
+    this._spanNotEnded.get(clientId)?.delete(span)
+  }
+
+  private removeClientSpans(client: AedesClient) {
+    const clientId = client.id
+    if (!this._spanNotEnded.has(clientId)) {
+      return
+    }
+    for (const span of this._spanNotEnded.get(clientId)?.values() ?? []) {
+      span?.end()
+      //? this.endSpan(span, span.kind, span.startTime, client)
+    }
+    this._spanNotEnded.delete(clientId)
+  }
+
   private startSpan(
     name: string,
     options: SpanOptions,
+    client: AedesClient,
     ctx = context.active()
   ) {
     const requireParent = this.getConfig().requireParentforIncomingSpans
@@ -168,7 +204,7 @@ export class AedesInstrumentation extends InstrumentationBase {
     } else {
       span = this.tracer.startSpan(name, options, ctx)
     }
-    this._spanNotEnded.add(span)
+    this.addClientSpan(client, span)
     return span
   }
 
@@ -176,14 +212,15 @@ export class AedesInstrumentation extends InstrumentationBase {
     span: Span,
     spanKind: SpanKind,
     startTime: HrTime,
+    client: AedesClient,
     metricAttributes: Attributes = {}
   ) {
-    if (!this._spanNotEnded.has(span)) {
+    if (!this.hasClientSpan(client, span)) {
       return
     }
 
     span.end()
-    this._spanNotEnded.delete(span)
+    this.removeClientSpan(client, span)
 
     // Record metrics
     const duration = hrTimeToMilliseconds(hrTimeDuration(startTime, hrTime()))
@@ -207,6 +244,15 @@ export class AedesInstrumentation extends InstrumentationBase {
         this.getAedesHandlePatch.bind(this)
       )
     }
+    if (!this.isWrapped(moduleExports.prototype, 'on')) {
+      this._wrap(
+        moduleExports.prototype,
+        'on',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.getAedesListenerPatch.bind(this) as any
+      )
+    }
+
     if (!this.isWrapped(moduleExports.prototype, 'subscribe')) {
       this._wrap(
         moduleExports.prototype,
@@ -250,6 +296,9 @@ export class AedesInstrumentation extends InstrumentationBase {
     if (isWrapped(moduleExports.prototype.handle)) {
       this._unwrap(moduleExports.prototype, 'handle')
     }
+    if (isWrapped(moduleExports.prototype.on)) {
+      this._unwrap(moduleExports.prototype, 'on')
+    }
     if (isWrapped(moduleExports.prototype.subscribe)) {
       this._unwrap(moduleExports.prototype, 'subscribe')
     }
@@ -285,7 +334,7 @@ export class AedesInstrumentation extends InstrumentationBase {
         if (isNetSocket(stream)) {
           const address = stream.address()
           client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_TRANSPORT] =
-            'tcp'
+            NetTransportValues.IP_TCP
           client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_PEER_IP] =
             stream.remoteAddress
           client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_PEER_PORT] =
@@ -316,9 +365,27 @@ export class AedesInstrumentation extends InstrumentationBase {
 
       const client = original.call(this, stream, request) as AedesClient
       setHostAttributes()
-
-      // TODO: add listener to client to remove spans from _spanNotEnded when client is closed
       return client
+    }
+  }
+
+  private getAedesListenerPatch(
+    original: (
+      eventName: string | symbol,
+      listener: (...args: unknown[]) => void
+    ) => Aedes
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const instrumentation = this
+    return function patchedOn(
+      this: Aedes,
+      event: string,
+      listener: (...args: unknown[]) => void
+    ) {
+      this.prependListener('clientDisconnect', (client) => {
+        instrumentation.removeClientSpans(client)
+      })
+      return original.call(this, event as string, listener)
     }
   }
 
@@ -372,6 +439,7 @@ export class AedesInstrumentation extends InstrumentationBase {
             kind,
             attributes,
           },
+          client,
           parentContext
         )
 
@@ -383,7 +451,7 @@ export class AedesInstrumentation extends InstrumentationBase {
 
         function wrappedCallback(this: unknown) {
           instrumentation.callConsumeEndHook(span, packet, null)
-          instrumentation.endSpan(span, kind, startTime)
+          instrumentation.endSpan(span, kind, startTime, client)
           const cb = context.bind(messageContext, callback)
           cb.apply(this)
         }
@@ -558,6 +626,7 @@ export class AedesInstrumentation extends InstrumentationBase {
           kind,
           attributes,
         },
+        client,
         parentContext
       )
       const startTime = hrTime()
@@ -574,7 +643,7 @@ export class AedesInstrumentation extends InstrumentationBase {
         } else {
           setSpanWithError(span, err)
         }
-        instrumentation.endSpan(span, kind, startTime, metricAttributes)
+        instrumentation.endSpan(span, kind, startTime, client, metricAttributes)
         const cb = context.bind(connectionContext, done)
         cb.call(this, err)
       }
@@ -624,6 +693,21 @@ export class AedesInstrumentation extends InstrumentationBase {
     }
   }
 
+  private callPublishConfirmHook(span: Span, info: PublishInfo) {
+    const publishConfirmHook = this.getConfig().publishConfirmHook
+    if (typeof publishConfirmHook === 'function') {
+      safeExecuteInTheMiddle(
+        () => publishConfirmHook(span, info),
+        (e) => {
+          if (e) {
+            diag.error('aedes instrumentation: publishConfirmHook error', e)
+          }
+        },
+        true
+      )
+    }
+  }
+
   private getHandlePublishPatch(original: HandlePublish['handlePublish']) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const instrumentation = this
@@ -637,28 +721,32 @@ export class AedesInstrumentation extends InstrumentationBase {
       const startTime = hrTime()
       const { topic } = packet
       const kind = SpanKind.SERVER
-      const span = instrumentation.startSpan(`${topic} publish`, {
-        kind,
-        attributes: {
-          ...client[CONNECTION_ATTRIBUTES],
-          [AedesAttributes.CLIENT_ID]: client.id,
-          [SemanticAttributes.MESSAGING_DESTINATION]: topic,
-          [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
-            MessagingDestinationKindValues.TOPIC,
-          [SemanticAttributes.MESSAGING_MESSAGE_ID]: packet.messageId,
-          [SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES]:
-            packet.payload.length.toString(),
+      const span = instrumentation.startSpan(
+        `${topic} publish`,
+        {
+          kind,
+          attributes: {
+            ...client[CONNECTION_ATTRIBUTES],
+            [AedesAttributes.CLIENT_ID]: client.id,
+            [SemanticAttributes.MESSAGING_DESTINATION]: topic,
+            [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
+              MessagingDestinationKindValues.TOPIC,
+            [SemanticAttributes.MESSAGING_MESSAGE_ID]: packet.messageId,
+            [SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES]:
+              packet.payload.length.toString(),
+          },
         },
-      })
+        client
+      )
       const parentContext = context.active()
       //? const parentContext = getContextFromPacket(packet) ?? context.active()
       const messageContext = trace.setSpan(parentContext, span)
       setContextInPacket(packet, messageContext, {
         protocolVersion: client.version,
       })
+      instrumentation.callPublishHook(span, { client, packet })
 
       function callbackOverride(this: unknown, err?: Error) {
-        instrumentation.callPublishHook(span, { client, packet })
         // TODO: based on QoS, span should be ended in puback
         // TODO: patch handlePuback to end the span and call publishConfirmHook
         if (!err) {
@@ -666,8 +754,8 @@ export class AedesInstrumentation extends InstrumentationBase {
         } else {
           setSpanWithError(span, err)
         }
-
-        instrumentation.endSpan(span, kind, startTime)
+        instrumentation.callPublishConfirmHook(span, { client, packet })
+        instrumentation.endSpan(span, kind, startTime, client)
         done.call(this, err)
       }
 
