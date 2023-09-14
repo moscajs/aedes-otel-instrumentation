@@ -8,7 +8,7 @@ import {
 import type { Packet, parser, writeToStream } from 'mqtt-packet'
 
 import { AedesInstrumentationConfig } from './types'
-import { getContextFromPacket, setContextInPacket } from './utils'
+import { VERSION, getContextFromPacket, setContextInPacket } from './utils'
 
 type MqttPacketModule = {
   parser: typeof parser
@@ -25,7 +25,7 @@ export class MqttPacketInstrumentation extends InstrumentationBase {
       enabled: true,
     }
   ) {
-    super('@opentelemetry/instrumentation-mqtt-packet', '0.0.0', config)
+    super('@opentelemetry/instrumentation-mqtt-packet', VERSION, config)
   }
 
   override setConfig(config: AedesInstrumentationConfig = {}) {

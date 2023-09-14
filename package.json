@@ -19,8 +19,11 @@
   },
   "keywords": [
     "mqtt",
+    "aedes",
+    "nodejs",
+    "instrumentation",
     "otel",
-    "aedes"
+    "opentelemetry"
   ],
   "author": "Edouard Maleix <https://github.com/getlarge>",
   "license": "ISC",
