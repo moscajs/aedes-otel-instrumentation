@@ -37,6 +37,7 @@ import type {
   Connection,
   PublishPacket,
 } from 'aedes'
+import type { ConnectionDetails } from 'aedes-protocol-decoder'
 import type { IncomingMessage } from 'node:http'
 
 import { AedesInstrumentationConfig, PublishInfo } from './types'
@@ -47,6 +48,8 @@ import {
   HandleSubscribe,
 } from './internal-types'
 import {
+  getBrokerUrl,
+  getClientTransport,
   getContextFromPacket,
   getMetricAttributes,
   isNetSocket,
@@ -324,14 +327,25 @@ export class AedesInstrumentation extends InstrumentationBase {
     return function patchedHandle(
       this: Aedes,
       stream: Connection,
-      request?: IncomingMessage
+      request?: IncomingMessage & { connDetails?: ConnectionDetails }
     ) {
       instrumentation._diag.debug(`instrumentation incoming connection`)
 
       const setHostAttributes = () => {
         client[CONNECTION_ATTRIBUTES] = {}
-        // TODO: use protocol decoder to determine connection properties (including MESSAGING_URL) ?
-        if (isNetSocket(stream)) {
+        // request.connDetails should be populated when using aedes-server-factory
+        if (request?.connDetails) {
+          const { connDetails } = request
+          client[CONNECTION_ATTRIBUTES] = {
+            [SemanticAttributes.NET_TRANSPORT]: NetTransportValues.IP_TCP,
+            [SemanticAttributes.NET_PEER_IP]: connDetails.ipAddress,
+            [SemanticAttributes.NET_PEER_PORT]: connDetails.port,
+            [SemanticAttributes.NET_HOST_IP]: connDetails.serverIpAddress,
+            [SemanticAttributes.NET_HOST_PORT]: connDetails.serverPort,
+          }
+
+          // TODO: if connDetails.isTls populate TLS attributes
+        } else if (isNetSocket(stream)) {
           const address = stream.address()
           client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_TRANSPORT] =
             NetTransportValues.IP_TCP
@@ -344,22 +358,21 @@ export class AedesInstrumentation extends InstrumentationBase {
               address.address
             client[CONNECTION_ATTRIBUTES][SemanticAttributes.NET_HOST_PORT] =
               address.port
-            client[CONNECTION_ATTRIBUTES][
-              SemanticAttributes.NET_TRANSPORT
-            ] = `IP.${address.family}`
           }
         }
 
         client[CONNECTION_ATTRIBUTES] = {
           ...client[CONNECTION_ATTRIBUTES],
-          [SemanticAttributes.MESSAGING_SYSTEM]:
-            AedesAttributes.MESSAGING_SYSTEM,
-          [AedesAttributes.BROKER_ID]: this.id,
-          [AedesAttributes.CLIENT_ID]: client.id,
+          [SemanticAttributes.MESSAGING_URL]: getBrokerUrl(stream, request),
           [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
             MessagingDestinationKindValues.TOPIC,
-          // How to get the broker URL?
-          [SemanticAttributes.MESSAGING_URL]: '',
+          [SemanticAttributes.MESSAGING_SYSTEM]:
+            AedesAttributes.MESSAGING_SYSTEM,
+          [SemanticAttributes.MESSAGING_PROTOCOL]:
+            AedesAttributes.MESSAGING_PROTOCOL,
+          [AedesAttributes.BROKER_ID]: this.id,
+          [AedesAttributes.CLIENT_ID]: client.id,
+          [AedesAttributes.CLIENT_TRANSPORT]: getClientTransport(request),
         }
       }
 
@@ -405,13 +418,9 @@ export class AedesInstrumentation extends InstrumentationBase {
       ) as AedesClient
       const attributes = {
         ...client[CONNECTION_ATTRIBUTES],
-        [SemanticAttributes.MESSAGING_SYSTEM]: AedesAttributes.MESSAGING_SYSTEM,
-        [AedesAttributes.BROKER_ID]: this.id,
         [AedesAttributes.CLIENT_ID]: client.id,
         [SemanticAttributes.MESSAGING_OPERATION]:
           MessagingOperationValues.RECEIVE,
-        [SemanticAttributes.MESSAGING_PROTOCOL]:
-          AedesAttributes.MESSAGING_PROTOCOL,
         // source attribute is present in semantic conventions but missing in implementation
         // @see https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/messaging/
         'messaging.source': topic,
@@ -428,13 +437,16 @@ export class AedesInstrumentation extends InstrumentationBase {
           attributes[SemanticAttributes.MESSAGING_MESSAGE_ID] =
             packet.messageId.toString()
         }
+        attributes[SemanticAttributes.MESSAGING_DESTINATION] = packet.topic
+        attributes[SemanticAttributes.MESSAGING_DESTINATION_KIND] =
+          MessagingDestinationKindValues.TOPIC
         attributes[SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES] =
           packet.payload.length.toString()
 
         const parentContext = getContextFromPacket(packet, currentContext)
         const startTime = hrTime()
         const span = instrumentation.startSpan(
-          `${topic} receive`,
+          `${packet.topic} receive`,
           {
             kind,
             attributes,
@@ -600,8 +612,6 @@ export class AedesInstrumentation extends InstrumentationBase {
       const attributes = {
         ...client[CONNECTION_ATTRIBUTES],
         [AedesAttributes.CLIENT_ID]: client.id,
-        [SemanticAttributes.MESSAGING_PROTOCOL]:
-          AedesAttributes.MESSAGING_PROTOCOL,
         [SemanticAttributes.MESSAGING_PROTOCOL_VERSION]:
           packet.protocolVersion === 3
             ? '3.1'
@@ -731,7 +741,8 @@ export class AedesInstrumentation extends InstrumentationBase {
             [SemanticAttributes.MESSAGING_DESTINATION]: topic,
             [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
               MessagingDestinationKindValues.TOPIC,
-            [SemanticAttributes.MESSAGING_MESSAGE_ID]: packet.messageId,
+            [SemanticAttributes.MESSAGING_MESSAGE_ID]:
+              packet.messageId?.toString(),
             [SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES]:
               packet.payload.length.toString(),
           },

@@ -8,8 +8,11 @@ import {
   Context,
 } from '@opentelemetry/api'
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions'
+import type { Connection } from 'aedes'
+import type { ConnectionDetails } from 'aedes-protocol-decoder'
 import type { Packet } from 'mqtt-packet'
-import { type AddressInfo, Socket as NetSocket } from 'node:net'
+import { IncomingMessage } from 'node:http'
+import type { AddressInfo, Socket as NetSocket } from 'node:net'
 
 export const setSpanWithError = (span: Span, error: Error): void => {
   const message = error.message
@@ -35,7 +38,16 @@ export const getMetricAttributes = (spanAttributes: Attributes): Attributes => {
 }
 
 export function isNetSocket(x: unknown): x is NetSocket {
-  return x instanceof NetSocket
+  return (
+    typeof x === 'object' &&
+    !!x &&
+    'remoteAddress' in x &&
+    typeof x.remoteAddress === 'string' &&
+    'remotePort' in x &&
+    typeof x.remotePort === 'number' &&
+    'address' in x &&
+    typeof x.address === 'function'
+  )
 }
 
 export function isNetSocketAddress(x: unknown): x is AddressInfo {
@@ -120,4 +132,43 @@ export function setContextInPacket(
       // ignore
     }
   }
+}
+
+export function getClientTransport(
+  request?: IncomingMessage & { connDetails?: ConnectionDetails }
+) {
+  if (!request?.connDetails) {
+    return !request ? 'mqtt' : 'ws'
+  }
+  const { isTls, isWebsocket } = request.connDetails
+  if (isTls) {
+    return isWebsocket ? 'wss' : 'mqtts'
+  }
+  return isWebsocket ? 'ws' : 'mqtts'
+}
+
+// TODO: refine to include full URL (pathname)
+export function getBrokerUrl(
+  stream: Connection,
+  request?: IncomingMessage & { connDetails?: ConnectionDetails }
+): string {
+  const protocol = getClientTransport(request)
+  if (!request?.connDetails) {
+    const address = !request
+      ? (stream as NetSocket)?.address()
+      : request.socket.address()
+    return isNetSocketAddress(address)
+      ? `${protocol}://${address?.address}:${address.port}`
+      : `${protocol}://localhost:1883`
+  }
+  const { isTls, isWebsocket, serverIpAddress, serverPort } =
+    request.connDetails
+  if (isTls) {
+    return isWebsocket
+      ? `${protocol}://${serverIpAddress}:${serverPort}`
+      : `${protocol}://${serverIpAddress}:${serverPort}`
+  }
+  return isWebsocket
+    ? `${protocol}://${serverIpAddress}:${serverPort}`
+    : `${protocol}://${serverIpAddress}:${serverPort}`
 }

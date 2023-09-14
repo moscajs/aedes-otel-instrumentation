@@ -21,5 +21,7 @@ export const AedesAttributes = {
   MESSAGING_SYSTEM: 'aedes',
   MESSAGING_PROTOCOL: 'mqtt',
   CLIENT_ID: `${client}.id`,
+  CLIENT_TRANSPORT: `${client}.transport`,
   BROKER_ID: `${broker}.id`,
+  BROKER_PROXY: `${broker}.proxy`,
 }

@@ -1,5 +1,4 @@
 import type { Attributes, Span } from '@opentelemetry/api'
-import type { AedesPacket } from 'aedes-packet'
 import type Aedes from 'aedes'
 import type {
   AedesPublishPacket,
@@ -9,6 +8,7 @@ import type {
   SubscribePacket,
   UnsubscribePacket,
 } from 'aedes'
+import type { AedesPacket } from 'aedes-packet'
 import type { CONNECTION_ATTRIBUTES } from './constants'
 
 export interface InstrumentationSpan extends Span {
