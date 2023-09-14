@@ -12,7 +12,7 @@ import {
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base'
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions'
-import Aedes from 'aedes'
+import type Aedes from 'aedes'
 import type { AedesPublishPacket } from 'aedes'
 import type * as MqttClient from 'mqtt'
 import type { IPublishPacket } from 'mqtt-packet'
@@ -27,6 +27,7 @@ import {
   MqttPacketInstrumentation,
 } from '../src'
 import { AedesClient } from '../src/internal-types'
+import { NO_RESOLVE, waitForEvent } from './helpers'
 
 // polyfill for JS new feature
 Object.defineProperty(Symbol, 'dispose', {
@@ -79,36 +80,6 @@ const getMqttClient = async (wait?: boolean) => {
       await client.endAsync()
     },
   }
-}
-
-const NO_RESOLVE = Symbol('NO_RESOLVE')
-
-type PartialEmitter = {
-  once(event: string, callback: (...args: unknown[]) => void): unknown
-  removeListener(event: string, callback: (...args: unknown[]) => void): unknown
-}
-
-function waitForEvent<A extends Array<unknown>, O = unknown>(
-  emitter: PartialEmitter,
-  eventName: string,
-  resolver: (...args: A) => O,
-  ms = 500
-): Promise<O> {
-  type L = (...args: unknown[]) => void
-  return new Promise<O>((resolve, reject) => {
-    const listener = (...args: A) => {
-      const value = resolver(...args)
-      if (value === NO_RESOLVE) {
-        return
-      }
-      resolve(value)
-    }
-    emitter.once(eventName, listener as L)
-    setTimeout(() => {
-      emitter.removeListener(eventName, listener as L)
-      reject(new Error(`not resolved after ${ms}ms`))
-    }, ms)
-  })
 }
 
 describe('Aedes', () => {
@@ -233,8 +204,8 @@ describe('Aedes', () => {
   it('should propagate from the publisher to the subscriber (JSON payload)', async () => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     await using brokerWrapper = await getBroker()
-    await using clientWrapper1 = await getMqttClient()
-    await using clientWrapper2 = await getMqttClient()
+    await using clientWrapper1 = await getMqttClient(true)
+    await using clientWrapper2 = await getMqttClient(true)
     const publisher = clientWrapper1.client
     const subscriber = clientWrapper2.client
     const topic = 'test'
