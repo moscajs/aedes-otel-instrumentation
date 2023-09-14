@@ -3,16 +3,30 @@ import { W3CTraceContextPropagator } from '@opentelemetry/core'
 import { AsyncHooksContextManager } from '@opentelemetry/context-async-hooks'
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node'
 import {
+  InMemoryMetricExporter,
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from '@opentelemetry/sdk-metrics'
+import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base'
-import type Aedes from 'aedes'
+import { SemanticAttributes } from '@opentelemetry/semantic-conventions'
+import Aedes from 'aedes'
+import type { AedesPublishPacket } from 'aedes'
 import type * as MqttClient from 'mqtt'
+import type { IPublishPacket } from 'mqtt-packet'
 import assert from 'node:assert'
 import { createServer } from 'node:net'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 
-import { AedesInstrumentation, MqttPacketInstrumentation } from '../src'
+import {
+  AedesAttributes,
+  AedesInstrumentation,
+  CONNECTION_ATTRIBUTES,
+  MqttPacketInstrumentation,
+} from '../src'
+import { AedesClient } from '../src/internal-types'
 
 // polyfill for JS new feature
 Object.defineProperty(Symbol, 'dispose', {
@@ -67,23 +81,60 @@ const getMqttClient = async (wait?: boolean) => {
   }
 }
 
+const NO_RESOLVE = Symbol('NO_RESOLVE')
+
+type PartialEmitter = {
+  once(event: string, callback: (...args: unknown[]) => void): unknown
+  removeListener(event: string, callback: (...args: unknown[]) => void): unknown
+}
+
+function waitForEvent<A extends Array<unknown>, O = unknown>(
+  emitter: PartialEmitter,
+  eventName: string,
+  resolver: (...args: A) => O,
+  ms = 500
+): Promise<O> {
+  type L = (...args: unknown[]) => void
+  return new Promise<O>((resolve, reject) => {
+    const listener = (...args: A) => {
+      const value = resolver(...args)
+      if (value === NO_RESOLVE) {
+        return
+      }
+      resolve(value)
+    }
+    emitter.once(eventName, listener as L)
+    setTimeout(() => {
+      emitter.removeListener(eventName, listener as L)
+      reject(new Error(`not resolved after ${ms}ms`))
+    }, ms)
+  })
+}
+
 describe('Aedes', () => {
   const mqttPacketInstrumentation = new MqttPacketInstrumentation()
   const instrumentation = new AedesInstrumentation()
-  const provider = new NodeTracerProvider()
-  const memoryExporter = new InMemorySpanExporter()
-  const spanProcessor = new SimpleSpanProcessor(memoryExporter)
-  provider.addSpanProcessor(spanProcessor)
+  const tracerProvider = new NodeTracerProvider()
+  const memorySpanExporter = new InMemorySpanExporter()
+  const spanProcessor = new SimpleSpanProcessor(memorySpanExporter)
+  tracerProvider.addSpanProcessor(spanProcessor)
+  const memoryMetricExporter = new InMemoryMetricExporter(0)
+  const metricProvider = new MeterProvider()
+  metricProvider.addMetricReader(
+    new PeriodicExportingMetricReader({
+      exporter: memoryMetricExporter,
+    })
+  )
   const contextManager = new AsyncHooksContextManager()
 
   beforeEach(() => {
     contextManager.enable()
     context.setGlobalContextManager(contextManager)
-    instrumentation.setTracerProvider(provider)
+    instrumentation.setTracerProvider(tracerProvider)
+    instrumentation.setMeterProvider(metricProvider)
     instrumentation.enable()
     mqttPacketInstrumentation.enable()
     propagation.setGlobalPropagator(new W3CTraceContextPropagator())
-
     /* eslint-disable @typescript-eslint/no-var-requires */
     Client = require('mqtt')
     Broker = require('aedes')
@@ -93,7 +144,8 @@ describe('Aedes', () => {
   afterEach(() => {
     contextManager.disable()
     contextManager.enable()
-    memoryExporter.reset()
+    memorySpanExporter.reset()
+    memoryMetricExporter.reset()
     instrumentation.disable()
     mqttPacketInstrumentation.disable()
   })
@@ -106,7 +158,111 @@ describe('Aedes', () => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     await using clientWrapper = await getMqttClient(true)
 
-    const spans = memoryExporter.getFinishedSpans()
+    const spans = memorySpanExporter.getFinishedSpans()
     assert.strictEqual(spans.length, 0)
   })
+
+  it('should create a span when a client is connected', async () => {
+    await using brokerWrapper = await getBroker()
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    await using clientWrapper = await getMqttClient()
+    const client = await waitForEvent(
+      brokerWrapper.broker,
+      'clientReady',
+      (client: AedesClient) => client,
+      500
+    )
+
+    const span = memorySpanExporter
+      .getFinishedSpans()
+      .find((span) => span.name.includes('mqtt.connect'))
+
+    assert.notStrictEqual(span, undefined)
+    assert.strictEqual(
+      client[CONNECTION_ATTRIBUTES][AedesAttributes.CLIENT_ID],
+      client.id
+    )
+    assert.strictEqual(
+      client[CONNECTION_ATTRIBUTES][SemanticAttributes.MESSAGING_SYSTEM],
+      AedesAttributes.MESSAGING_SYSTEM
+    )
+    assert.strictEqual(
+      client[CONNECTION_ATTRIBUTES][SemanticAttributes.MESSAGING_PROTOCOL],
+      AedesAttributes.MESSAGING_PROTOCOL
+    )
+    assert.notStrictEqual(
+      span?.events.find((event) => event.name === 'preConnect'),
+      undefined
+    )
+    assert.notStrictEqual(
+      span?.events.find((event) => event.name === 'authenticate'),
+      undefined
+    )
+    assert.strictEqual(span?.attributes[AedesAttributes.CLIENT_ID], client.id)
+  })
+
+  it('should create a span when a client is publishing a message (JSON payload)', async () => {
+    await using brokerWrapper = await getBroker()
+    await using clientWrapper = await getMqttClient(true)
+    const topic = 'test'
+    await clientWrapper.client.publishAsync(
+      topic,
+      JSON.stringify({ message: 'test' })
+    )
+    await waitForEvent(
+      brokerWrapper.broker,
+      'publish',
+      (packet: AedesPublishPacket) => {
+        if (packet.topic.startsWith('$SYS')) {
+          return NO_RESOLVE
+        }
+        return packet
+      }
+    )
+
+    const span = memorySpanExporter
+      .getFinishedSpans()
+      .find((span) => span.name.includes(`${topic} publish`))
+    assert.notStrictEqual(span, undefined)
+    assert.notStrictEqual(
+      span?.events.find((event) => event.name === 'authorizePublish'),
+      undefined
+    )
+  })
+
+  it('should propagate from the publisher to the subscriber (JSON payload)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    await using brokerWrapper = await getBroker()
+    await using clientWrapper1 = await getMqttClient()
+    await using clientWrapper2 = await getMqttClient()
+    const publisher = clientWrapper1.client
+    const subscriber = clientWrapper2.client
+    const topic = 'test'
+    await subscriber.subscribeAsync(topic)
+    await publisher.publishAsync(topic, JSON.stringify({ message: 'test' }))
+    await waitForEvent(
+      subscriber,
+      'message',
+      (topic, message, packet: IPublishPacket) => {
+        return packet
+      }
+    )
+
+    const subscriberSpan = memorySpanExporter
+      .getFinishedSpans()
+      .find((span) => span.name.includes(`${topic} receive`))
+    const publisherSpan = memorySpanExporter
+      .getFinishedSpans()
+      .find((span) => span.name.includes(`${topic} publish`))
+
+    assert.notStrictEqual(subscriberSpan, undefined)
+    assert.notStrictEqual(publisherSpan, undefined)
+    assert.strictEqual(
+      publisherSpan?.spanContext().spanId,
+      subscriberSpan?.parentSpanId
+    )
+  })
+
+  it.todo('should capture connection events')
+  it.todo('should capture connection errors')
 })
