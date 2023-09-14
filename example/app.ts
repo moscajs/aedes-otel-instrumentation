@@ -2,6 +2,7 @@
 import './tracing'
 
 import Aedes from 'aedes'
+import { extractSocketDetails } from 'aedes-protocol-decoder'
 import * as mqtt from 'mqtt'
 import http, { RequestOptions } from 'node:http'
 import net from 'node:net'
@@ -67,8 +68,13 @@ function createAedesServer(): Promise<Aedes> {
         })
     },
   })
+
   const tcpServer = net.createServer(broker.handle.bind(broker))
-  // or  net.createServer((socket) => broker.handle(socket))
+  net.createServer((socket) => {
+    const req = { connDetails: extractSocketDetails(socket) }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    broker.handle(socket, req as any)
+  })
 
   return new Promise((resolve) => {
     broker.once('closed', () => {
@@ -104,9 +110,15 @@ async function main() {
 
   await mqttClient1.publishAsync('test', JSON.stringify({ message: 'test1' }))
 
-  await mqttClient1.subscribeAsync('test')
-  await mqttClient2.publishAsync('test', JSON.stringify({ message: 'test1' }))
-  await mqttClient2.publishAsync('test', JSON.stringify({ message: 'test2' }))
+  await mqttClient1.subscribeAsync('this/is/a/+')
+  await mqttClient2.publishAsync(
+    'this/is/a/test',
+    JSON.stringify({ message: 'test1' })
+  )
+  await mqttClient2.publishAsync(
+    'this/is/a/test',
+    JSON.stringify({ message: 'test2' })
+  )
 }
 
 main().catch((error) => {

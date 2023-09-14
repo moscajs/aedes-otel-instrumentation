@@ -48,6 +48,7 @@ import {
   HandleSubscribe,
 } from './internal-types'
 import {
+  VERSION,
   getBrokerUrl,
   getClientTransport,
   getContextFromPacket,
@@ -75,7 +76,7 @@ export class AedesInstrumentation extends InstrumentationBase {
       requireParentforIncomingSpans: false,
     }
   ) {
-    super('@opentelemetry/instrumentation-aedes', '0.0.0', config)
+    super('@opentelemetry/instrumentation-aedes', VERSION, config)
   }
 
   protected override _updateMetricInstruments() {

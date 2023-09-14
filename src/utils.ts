@@ -13,6 +13,11 @@ import type { ConnectionDetails } from 'aedes-protocol-decoder'
 import type { Packet } from 'mqtt-packet'
 import { IncomingMessage } from 'node:http'
 import type { AddressInfo, Socket as NetSocket } from 'node:net'
+import path from 'node:path'
+
+const packageJsonUrl = path.resolve(`${module.path}/../package.json`)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+export const { version: VERSION } = require(packageJsonUrl)
 
 export const setSpanWithError = (span: Span, error: Error): void => {
   const message = error.message

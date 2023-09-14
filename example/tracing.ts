@@ -13,8 +13,7 @@ import {
   ConsoleMetricExporter,
 } from '@opentelemetry/sdk-metrics'
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
-import { AedesInstrumentation } from '../src/instrumentation'
-import { MqttPacketInstrumentation } from '../src'
+import { getNodeMqttAutoInstrumentations } from '../src'
 
 // Outputs to Jaeger
 // const traceExporter = new OTLPTraceExporter({
@@ -47,18 +46,22 @@ const sdk = new NodeSDK({
         enabled: false,
       },
     }),
-    new MqttPacketInstrumentation(),
-    new AedesInstrumentation({
-      enabled: true,
-      // publishHook: (span, info) => {
-      //   console.log('publishHook', span)
-      // },
-      // consumeHook: (span, info) => {
-      //   console.log('consumeHook', span)
-      // },
-      // consumeEndHook: (span, info) => {
-      //   console.log('consumeEndHook', span)
-      // },
+    getNodeMqttAutoInstrumentations({
+      '@opentelemetry/instrumentation-mqtt-packet': {
+        enabled: true,
+      },
+      '@opentelemetry/instrumentation-aedes': {
+        enabled: true,
+        // publishHook: (span, info) => {
+        //   console.log('publishHook', span)
+        // },
+        // consumeHook: (span, info) => {
+        //   console.log('consumeHook', span)
+        // },
+        // consumeEndHook: (span, info) => {
+        //   console.log('consumeEndHook', span)
+        // },
+      },
     }),
   ],
   spanProcessor: new BatchSpanProcessor(traceExporter),

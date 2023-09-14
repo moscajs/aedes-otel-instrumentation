@@ -1,4 +1,5 @@
-export * from './mqtt-packet.instrumentation'
+export * from './aedes-instrumentation'
+export * from './auto-instrumentation'
 export * from './constants'
-export * from './instrumentation'
+export * from './mqtt-packet.instrumentation'
 export * from './types'
