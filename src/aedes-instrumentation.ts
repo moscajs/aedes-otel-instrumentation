@@ -64,18 +64,18 @@ import {
   CONNECTION_ATTRIBUTES,
 } from './constants'
 
+const defaultConfig: AedesInstrumentationConfig = {
+  enabled: true,
+  requireParentforIncomingSpans: false,
+}
+
 export class AedesInstrumentation extends InstrumentationBase {
-  protected override _config!: AedesInstrumentationConfig
+  protected override _config: AedesInstrumentationConfig = defaultConfig
   private _mqttBrokerDurationHistogram!: Histogram
   private _mqttClientDurationHistogram!: Histogram
   readonly _spanNotEnded = new Map<string, Set<Span>>()
 
-  constructor(
-    config: AedesInstrumentationConfig = {
-      enabled: true,
-      requireParentforIncomingSpans: false,
-    }
-  ) {
+  constructor(config: AedesInstrumentationConfig = defaultConfig) {
     super('@opentelemetry/instrumentation-aedes', VERSION, config)
   }
 
@@ -372,7 +372,7 @@ export class AedesInstrumentation extends InstrumentationBase {
           [SemanticAttributes.MESSAGING_PROTOCOL]:
             AedesAttributes.MESSAGING_PROTOCOL,
           [AedesAttributes.BROKER_ID]: this.id,
-          [AedesAttributes.CLIENT_ID]: client.id,
+          // [AedesAttributes.CLIENT_ID]: client.id, // client.id is not yet defined
           [AedesAttributes.CLIENT_TRANSPORT]: getClientTransport(request),
         }
       }
@@ -464,7 +464,13 @@ export class AedesInstrumentation extends InstrumentationBase {
 
         function wrappedCallback(this: unknown) {
           instrumentation.callConsumeEndHook(span, packet, null)
-          instrumentation.endSpan(span, kind, startTime, client)
+          instrumentation.endSpan(
+            span,
+            kind,
+            startTime,
+            client,
+            getMetricAttributes(attributes)
+          )
           const cb = context.bind(messageContext, callback)
           cb.apply(this)
         }
@@ -530,7 +536,7 @@ export class AedesInstrumentation extends InstrumentationBase {
     ) {
       const span = trace.getSpan(context.active())
       span?.addEvent('preConnect', {
-        [AedesAttributes.CLIENT_ID]: args[0].id,
+        [AedesAttributes.CLIENT_ID]: args[1].clientId,
       })
       return original.apply(this, args)
     }
@@ -612,7 +618,6 @@ export class AedesInstrumentation extends InstrumentationBase {
       const kind = SpanKind.INTERNAL
       const attributes = {
         ...client[CONNECTION_ATTRIBUTES],
-        [AedesAttributes.CLIENT_ID]: client.id,
         [SemanticAttributes.MESSAGING_PROTOCOL_VERSION]:
           packet.protocolVersion === 3
             ? '3.1'
@@ -631,30 +636,30 @@ export class AedesInstrumentation extends InstrumentationBase {
       const parentContext = getContextFromPacket(packet, ROOT_CONTEXT, {
         protocolVersion: packet.protocolVersion,
       })
-      const span = instrumentation.startSpan(
+      // we cannot use instrumentation.startSpan as client.id is still undefined at this point
+      const span = instrumentation.tracer.startSpan(
         'mqtt.connect',
         {
           kind,
           attributes,
         },
-        client,
         parentContext
       )
-      const startTime = hrTime()
-      const metricAttributes = getMetricAttributes(attributes)
       const connectionContext = trace.setSpan(
         parentContext || context.active(),
         span
       )
 
       function wrappedCallback(this: unknown, err?: Error) {
+        client[CONNECTION_ATTRIBUTES] = attributes
+        client[CONNECTION_ATTRIBUTES][AedesAttributes.CLIENT_ID] = client.id
+        span.setAttribute(AedesAttributes.CLIENT_ID, client.id)
         if (!err) {
-          client[CONNECTION_ATTRIBUTES] = attributes
           span?.setStatus({ code: 0 })
         } else {
           setSpanWithError(span, err)
         }
-        instrumentation.endSpan(span, kind, startTime, client, metricAttributes)
+        span.end()
         const cb = context.bind(connectionContext, done)
         cb.call(this, err)
       }
@@ -732,21 +737,21 @@ export class AedesInstrumentation extends InstrumentationBase {
       const startTime = hrTime()
       const { topic } = packet
       const kind = SpanKind.SERVER
+      const attributes: Attributes = {
+        ...client[CONNECTION_ATTRIBUTES],
+        [AedesAttributes.CLIENT_ID]: client.id,
+        [SemanticAttributes.MESSAGING_DESTINATION]: topic,
+        [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
+          MessagingDestinationKindValues.TOPIC,
+        [SemanticAttributes.MESSAGING_MESSAGE_ID]: packet.messageId?.toString(),
+        [SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES]:
+          packet.payload.length.toString(),
+      }
       const span = instrumentation.startSpan(
         `${topic} publish`,
         {
           kind,
-          attributes: {
-            ...client[CONNECTION_ATTRIBUTES],
-            [AedesAttributes.CLIENT_ID]: client.id,
-            [SemanticAttributes.MESSAGING_DESTINATION]: topic,
-            [SemanticAttributes.MESSAGING_DESTINATION_KIND]:
-              MessagingDestinationKindValues.TOPIC,
-            [SemanticAttributes.MESSAGING_MESSAGE_ID]:
-              packet.messageId?.toString(),
-            [SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_SIZE_BYTES]:
-              packet.payload.length.toString(),
-          },
+          attributes,
         },
         client
       )
@@ -767,7 +772,13 @@ export class AedesInstrumentation extends InstrumentationBase {
           setSpanWithError(span, err)
         }
         instrumentation.callPublishConfirmHook(span, { client, packet })
-        instrumentation.endSpan(span, kind, startTime, client)
+        instrumentation.endSpan(
+          span,
+          kind,
+          startTime,
+          client,
+          getMetricAttributes(attributes)
+        )
         done.call(this, err)
       }
 

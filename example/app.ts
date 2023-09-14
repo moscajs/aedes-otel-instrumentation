@@ -69,8 +69,8 @@ function createAedesServer(): Promise<Aedes> {
     },
   })
 
-  const tcpServer = net.createServer(broker.handle.bind(broker))
-  net.createServer((socket) => {
+  // const tcpServer = net.createServer(broker.handle.bind(broker))
+  const tcpServer = net.createServer((socket) => {
     const req = { connDetails: extractSocketDetails(socket) }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     broker.handle(socket, req as any)
