@@ -4,12 +4,11 @@
   "description": "OpenTelemetry instrumentation library for Aedes MQTT broker",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "scripts": {
-    "test": "node --loader tsx --test test/*.spec.ts",
-    "lint": "eslint . --ext .ts",
-    "prettier": "prettier --write .",
-    "build": "tsc"
-  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
   "engines": {
     "node": ">=18.17.0"
   },
@@ -31,6 +30,30 @@
     "url": "https://github.com/moscajs/aedes-otel-instrumentation/issues"
   },
   "homepage": "https://github.com/moscajs/aedes-otel-instrumentation#readme",
+  "scripts": {
+    "test": "node --loader=tsx --test-reporter=spec --test test/*.spec.ts",
+    "lint": "eslint . --ext .ts",
+    "prettier": "prettier --write .",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "husky install ; npm run build",
+    "release": "read -p 'GITHUB_TOKEN: ' GITHUB_TOKEN && export GITHUB_TOKEN=$GITHUB_TOKEN && release-it"
+  },
+  "release-it": {
+    "github": {
+      "release": true
+    },
+    "git": {
+      "tagName": "v${version}"
+    },
+    "hooks": {
+      "before:init": [
+        "npm run test"
+      ]
+    },
+    "npm": {
+      "publish": true
+    }
+  },
   "dependencies": {
     "@opentelemetry/instrumentation": "^0.41.2",
     "@opentelemetry/semantic-conventions": "^1.15.2"
@@ -52,9 +75,12 @@
     "aedes-packet": "^3.0.0",
     "aedes-protocol-decoder": "^2.1.0",
     "eslint": "^8.48.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^14.0.1",
     "mqtt": "^5.0.4",
     "patch-package": "^8.0.0",
     "prettier": "^3.0.3",
+    "release-it": "^16.1.5",
     "tsx": "^3.12.10",
     "typescript": "^5.2.2"
   }

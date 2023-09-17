@@ -16,7 +16,7 @@ import type Aedes from 'aedes'
 import type { AedesPublishPacket } from 'aedes'
 import type * as MqttClient from 'mqtt'
 import type { IPublishPacket } from 'mqtt-packet'
-import assert from 'node:assert'
+import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 
