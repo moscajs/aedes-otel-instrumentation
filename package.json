@@ -35,7 +35,9 @@
     "lint": "eslint . --ext .ts",
     "prettier": "prettier --write .",
     "build": "tsc -p tsconfig.build.json",
-    "prepare": "husky install ; npm run build",
+    "prepare": "husky install",
+    "postinstall": "patch-package",
+    "prepack": "npm run build",
     "release": "read -p 'GITHUB_TOKEN: ' GITHUB_TOKEN && export GITHUB_TOKEN=$GITHUB_TOKEN && release-it"
   },
   "release-it": {
