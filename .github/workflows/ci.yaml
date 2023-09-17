@@ -1,0 +1,30 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test
+      # TODO: enable code coverage once Node supports source maps
+      # see https://nodejs.org/docs/latest-v20.x/api/test.html#collecting-code-coverage
