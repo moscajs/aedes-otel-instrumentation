@@ -16,15 +16,9 @@ type MqttPacketModule = {
 }
 
 export class MqttPacketInstrumentation extends InstrumentationBase {
-  protected override _config: InstrumentationConfig = {
-    enabled: true,
-  }
+  protected override _config: InstrumentationConfig = {}
 
-  constructor(
-    config: InstrumentationConfig = {
-      enabled: true,
-    }
-  ) {
+  constructor(config: InstrumentationConfig = {}) {
     super('@opentelemetry/instrumentation-mqtt-packet', VERSION, config)
   }
 

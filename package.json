@@ -31,7 +31,7 @@
   },
   "homepage": "https://github.com/moscajs/aedes-otel-instrumentation#readme",
   "scripts": {
-    "test": "node --loader=tsx --test-reporter=spec --test test/*.spec.ts",
+    "test": "node --require @esbuild-kit/cjs-loader --test-reporter=spec --test test/*.spec.ts",
     "lint": "eslint . --ext .ts",
     "prettier": "prettier --write .",
     "build": "tsc -p tsconfig.build.json",
@@ -83,6 +83,7 @@
     "patch-package": "^8.0.0",
     "prettier": "^3.0.3",
     "release-it": "^16.1.5",
+    "semver": "^7.5.4",
     "tsx": "^3.12.10",
     "typescript": "^5.2.2"
   }

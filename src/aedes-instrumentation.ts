@@ -65,7 +65,6 @@ import {
 } from './constants'
 
 const defaultConfig: AedesInstrumentationConfig = {
-  enabled: true,
   requireParentforIncomingSpans: false,
 }
 
@@ -819,6 +818,7 @@ export class AedesInstrumentation extends InstrumentationBase {
       this: unknown,
       ...args: Parameters<HandleSubscribe['handleSubscribe']>
     ) {
+      // TODO: create a span for each topic and call endSpan on each topic
       const [client] = args
       const currentContext = context.active()
       const newContext = currentContext.setValue(CLIENT_CONTEXT_KEY, client)

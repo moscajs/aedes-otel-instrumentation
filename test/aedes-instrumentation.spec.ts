@@ -16,6 +16,7 @@ import type Aedes from 'aedes'
 import type { AedesPublishPacket } from 'aedes'
 import type * as MqttClient from 'mqtt'
 import type { IPublishPacket } from 'mqtt-packet'
+import * as semver from 'semver'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
 import { afterEach, beforeEach, describe, it } from 'node:test'
@@ -30,14 +31,16 @@ import { AedesClient } from '../src/internal-types'
 import { NO_RESOLVE, waitForEvent } from './helpers'
 
 // polyfill for JS new feature
-Object.defineProperty(Symbol, 'dispose', {
-  configurable: true,
-  value: Symbol('Symbol.dispose'),
-})
-Object.defineProperty(Symbol, 'asyncDispose', {
-  configurable: true,
-  value: Symbol('Symbol.asyncDispose'),
-})
+if (semver.lt(process.versions.node, '20.0.0')) {
+  Object.defineProperty(Symbol, 'dispose', {
+    configurable: true,
+    value: Symbol('Symbol.dispose'),
+  })
+  Object.defineProperty(Symbol, 'asyncDispose', {
+    configurable: true,
+    value: Symbol('Symbol.asyncDispose'),
+  })
+}
 
 let Client: typeof MqttClient
 let Broker: typeof Aedes
@@ -117,13 +120,13 @@ describe('Aedes', () => {
     contextManager.enable()
     memorySpanExporter.reset()
     memoryMetricExporter.reset()
-    instrumentation.disable()
     mqttPacketInstrumentation.disable()
+    instrumentation.disable()
   })
 
   it('should not generate any spans when disabled', async () => {
-    instrumentation.disable()
     mqttPacketInstrumentation.disable()
+    instrumentation.disable()
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     await using brokerWrapper = await getBroker()
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -140,8 +143,7 @@ describe('Aedes', () => {
     const client = await waitForEvent(
       brokerWrapper.broker,
       'clientReady',
-      (client: AedesClient) => client,
-      500
+      (client: AedesClient) => client
     )
 
     const span = memorySpanExporter
