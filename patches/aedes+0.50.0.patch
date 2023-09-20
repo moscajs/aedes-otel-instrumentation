@@ -1,16 +1,7 @@
 diff --git a/node_modules/aedes/aedes.js b/node_modules/aedes/aedes.js
-index c02d289..668b162 100644
+index c02d289..0e298ef 100644
 --- a/node_modules/aedes/aedes.js
 +++ b/node_modules/aedes/aedes.js
-@@ -7,7 +7,7 @@ const series = require('fastseries')
- const { v4: uuidv4 } = require('uuid')
- const reusify = require('reusify')
- const { pipeline } = require('stream')
--const Packet = require('aedes-packet')
-+const { Packet } = require('aedes-packet')
- const memory = require('aedes-persistence')
- const mqemitter = require('mqemitter')
- const Client = require('./lib/client')
 @@ -45,6 +45,7 @@ function Aedes (opts) {
    // +1 when construct a new aedes-packet
    // internal track for last brokerCounter
@@ -99,16 +90,14 @@ index c02d289..668b162 100644
    callback(null, true)
  }
 diff --git a/node_modules/aedes/lib/client.js b/node_modules/aedes/lib/client.js
-index 414d8e5..e525712 100644
+index 414d8e5..4d796ee 100644
 --- a/node_modules/aedes/lib/client.js
 +++ b/node_modules/aedes/lib/client.js
-@@ -4,12 +4,12 @@ const mqtt = require('mqtt-packet')
- const EventEmitter = require('events')
+@@ -5,11 +5,11 @@ const EventEmitter = require('events')
  const util = require('util')
  const eos = require('end-of-stream')
--const Packet = require('aedes-packet')
+ const Packet = require('aedes-packet')
 -const write = require('./write')
-+const { Packet } = require('aedes-packet')
 +const { write } = require('./write')
  const QoSPacket = require('./qos-packet')
 -const handleSubscribe = require('./handlers/subscribe')
@@ -258,15 +247,11 @@ index 09dcc86..672b697 100644
 -module.exports = handlePubrel
 +module.exports = { handlePubrel }
 diff --git a/node_modules/aedes/lib/handlers/subscribe.js b/node_modules/aedes/lib/handlers/subscribe.js
-index 2470427..e2007aa 100644
+index 2470427..9180cf2 100644
 --- a/node_modules/aedes/lib/handlers/subscribe.js
 +++ b/node_modules/aedes/lib/handlers/subscribe.js
-@@ -1,10 +1,10 @@
- 'use strict'
- 
- const fastfall = require('fastfall')
--const Packet = require('aedes-packet')
-+const { Packet } = require('aedes-packet')
+@@ -4,7 +4,7 @@ const fastfall = require('fastfall')
+ const Packet = require('aedes-packet')
  const { through } = require('../utils')
  const { validateTopic, $SYS_PREFIX } = require('../utils')
 -const write = require('../write')
@@ -274,7 +259,16 @@ index 2470427..e2007aa 100644
  
  const subscribeTopicActions = fastfall([
    authorize,
-@@ -245,4 +245,4 @@ function completeSubscribe (err) {
+@@ -144,6 +144,8 @@ function addSubs (sub, done) {
+ 
+   const deliverFunc = func
+   func = function handlePacketSubscription (_packet, cb) {
++
++    // console.log('handlePacketSubscription', this)
+     _packet = new Packet(_packet, broker)
+     _packet.nl = nl
+     if (!rap) _packet.retain = false
+@@ -245,4 +247,4 @@ function completeSubscribe (err) {
  
  function noop () { }
  
@@ -298,18 +292,6 @@ index e08c317..b9cd7ef 100644
  
 -module.exports = handleUnsubscribe
 +module.exports = { handleUnsubscribe }
-diff --git a/node_modules/aedes/lib/qos-packet.js b/node_modules/aedes/lib/qos-packet.js
-index 5527fe1..07c1581 100644
---- a/node_modules/aedes/lib/qos-packet.js
-+++ b/node_modules/aedes/lib/qos-packet.js
-@@ -1,6 +1,6 @@
- 'use strict'
- 
--const Packet = require('aedes-packet')
-+const { Packet } = require('aedes-packet')
- const util = require('util')
- 
- function QoSPacket (original, client) {
 diff --git a/node_modules/aedes/lib/write.js b/node_modules/aedes/lib/write.js
 index 716d81a..a5d186c 100644
 --- a/node_modules/aedes/lib/write.js

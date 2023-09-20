@@ -75,7 +75,7 @@
     "@typescript-eslint/parser": "^6.5.0",
     "aedes": "^0.50.0",
     "aedes-packet": "^3.0.0",
-    "aedes-protocol-decoder": "^2.1.0",
+    "aedes-protocol-decoder": "^2.2.0",
     "eslint": "^8.48.0",
     "husky": "^8.0.3",
     "lint-staged": "^14.0.1",
