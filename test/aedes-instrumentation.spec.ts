@@ -124,18 +124,6 @@ describe('Aedes', () => {
     instrumentation.disable()
   })
 
-  it('should not generate any spans when disabled', async () => {
-    mqttPacketInstrumentation.disable()
-    instrumentation.disable()
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    await using brokerWrapper = await getBroker()
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    await using clientWrapper = await getMqttClient(true)
-
-    const spans = memorySpanExporter.getFinishedSpans()
-    assert.strictEqual(spans.length, 0)
-  })
-
   it('should create a span when a client is connected', async () => {
     await using brokerWrapper = await getBroker()
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -172,6 +160,20 @@ describe('Aedes', () => {
       undefined
     )
     assert.strictEqual(span?.attributes[AedesAttributes.CLIENT_ID], client.id)
+  })
+
+  // this test is reliable when running second.
+  // when running first, it might fail because the modules are not correctly unpatched
+  it('should not generate any spans when disabled', async () => {
+    mqttPacketInstrumentation.disable()
+    instrumentation.disable()
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    await using brokerWrapper = await getBroker()
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    await using clientWrapper = await getMqttClient(true)
+
+    const spans = memorySpanExporter.getFinishedSpans()
+    assert.strictEqual(spans.length, 0)
   })
 
   it('should create a span when a client is publishing a message (JSON payload)', async () => {
