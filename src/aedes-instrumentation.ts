@@ -97,12 +97,24 @@ export class AedesInstrumentation extends InstrumentationBase {
       }
     )
   }
+
   override setConfig(config: AedesInstrumentationConfig = {}) {
     this._config = config
   }
 
   override getConfig(): AedesInstrumentationConfig {
     return this._config
+  }
+
+  enable(): void {
+    super.enable()
+    this.setConfig({ ...this.getConfig(), enabled: true })
+  }
+
+  disable(): void {
+    super.disable()
+    this._spanNotEnded.clear()
+    this.setConfig({ ...this.getConfig(), enabled: false })
   }
 
   isWrapped<M extends object>(moduleExports: M, name?: keyof M) {
@@ -155,7 +167,11 @@ export class AedesInstrumentation extends InstrumentationBase {
 
   // #region span management
 
-  private addClientSpan(client: AedesClient, span: Span) {
+  // TODO: maybe handle case where client is undefined (meaning the span is linked to the broker) ?
+  private addClientSpan(span: Span, client?: AedesClient) {
+    if (!client) {
+      return
+    }
     const clientId = client.id
     if (!this._spanNotEnded.has(clientId)) {
       this._spanNotEnded.set(clientId, new Set())
@@ -163,7 +179,10 @@ export class AedesInstrumentation extends InstrumentationBase {
     this._spanNotEnded.get(clientId)?.add(span)
   }
 
-  private hasClientSpan(client: AedesClient, span: Span) {
+  private hasClientSpan(span: Span, client?: AedesClient) {
+    if (!client) {
+      return false
+    }
     const clientId = client.id
     if (!this._spanNotEnded.has(clientId)) {
       return false
@@ -171,7 +190,10 @@ export class AedesInstrumentation extends InstrumentationBase {
     return this._spanNotEnded.get(clientId)?.has(span)
   }
 
-  private removeClientSpan(client: AedesClient, span: Span) {
+  private removeClientSpan(span: Span, client?: AedesClient) {
+    if (!client) {
+      return
+    }
     const clientId = client.id
     if (!this._spanNotEnded.has(clientId)) {
       return
@@ -179,7 +201,10 @@ export class AedesInstrumentation extends InstrumentationBase {
     this._spanNotEnded.get(clientId)?.delete(span)
   }
 
-  private removeClientSpans(client: AedesClient) {
+  private removeClientSpans(client?: AedesClient) {
+    if (!client) {
+      return
+    }
     const clientId = client.id
     if (!this._spanNotEnded.has(clientId)) {
       return
@@ -194,7 +219,7 @@ export class AedesInstrumentation extends InstrumentationBase {
   private startSpan(
     name: string,
     options: SpanOptions,
-    client: AedesClient,
+    client?: AedesClient,
     ctx = context.active()
   ) {
     const requireParent = this.getConfig().requireParentforIncomingSpans
@@ -207,7 +232,7 @@ export class AedesInstrumentation extends InstrumentationBase {
     } else {
       span = this.tracer.startSpan(name, options, ctx)
     }
-    this.addClientSpan(client, span)
+    this.addClientSpan(span, client)
     return span
   }
 
@@ -215,15 +240,18 @@ export class AedesInstrumentation extends InstrumentationBase {
     span: Span,
     spanKind: SpanKind,
     startTime: HrTime,
-    client: AedesClient,
+    client?: AedesClient,
     metricAttributes: Attributes = {}
   ) {
-    if (!this.hasClientSpan(client, span)) {
+    if (!client) {
+      span.end()
       return
     }
-
+    if (!this.hasClientSpan(span, client)) {
+      return
+    }
     span.end()
-    this.removeClientSpan(client, span)
+    this.removeClientSpan(span, client)
 
     // Record metrics
     const duration = hrTimeToMilliseconds(hrTimeDuration(startTime, hrTime()))
@@ -413,12 +441,12 @@ export class AedesInstrumentation extends InstrumentationBase {
       // still unclear how to set the kind https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/messaging/#span-kind
       const kind = SpanKind.SERVER
       const handleSubscribeCtx = context.active()
-      const client = handleSubscribeCtx.getValue(
-        CLIENT_CONTEXT_KEY
-      ) as AedesClient
+      const client = handleSubscribeCtx.getValue(CLIENT_CONTEXT_KEY) as
+        | AedesClient
+        | undefined
       const attributes = {
-        ...client[CONNECTION_ATTRIBUTES],
-        [AedesAttributes.CLIENT_ID]: client.id,
+        ...(client && client[CONNECTION_ATTRIBUTES]),
+        ...(client && { [AedesAttributes.CLIENT_ID]: client.id }),
         [SemanticAttributes.MESSAGING_OPERATION]:
           MessagingOperationValues.RECEIVE,
         // source attribute is present in semantic conventions but missing in implementation
