@@ -1,6 +1,6 @@
 {
   "name": "aedes-otel-instrumentation",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenTelemetry instrumentation library for Aedes MQTT broker",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
