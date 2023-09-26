@@ -54,6 +54,40 @@
     },
     "npm": {
       "publish": true
+    },
+    "plugins": {
+      "@release-it/conventional-changelog": {
+        "infile": "CHANGELOG.md",
+        "preset": {
+          "name": "conventionalcommits",
+          "types": [
+            {
+              "type": "feat",
+              "section": "Features"
+            },
+            {
+              "type": "fix",
+              "section": "Bug Fixes"
+            },
+            {
+              "type": "test",
+              "section": "Test added"
+            },
+            {
+              "type": "refactor",
+              "section": "Code refactoring"
+            },
+            {
+              "type": "chore",
+              "section": "Chores"
+            },
+            {
+              "type": "docs",
+              "section": "Documentation"
+            }
+          ]
+        }
+      }
     }
   },
   "dependencies": {
@@ -70,6 +104,7 @@
     "@opentelemetry/resources": "^1.15.2",
     "@opentelemetry/sdk-node": "^0.41.2",
     "@opentelemetry/sdk-trace-base": "^1.15.2",
+    "@release-it/conventional-changelog": "^7.0.2",
     "@types/node": "^20.5.8",
     "@typescript-eslint/eslint-plugin": "^6.5.0",
     "@typescript-eslint/parser": "^6.5.0",
