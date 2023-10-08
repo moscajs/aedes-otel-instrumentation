@@ -31,9 +31,9 @@
   },
   "homepage": "https://github.com/moscajs/aedes-otel-instrumentation#readme",
   "scripts": {
-    "test": "node --require @esbuild-kit/cjs-loader --test-reporter=spec --test test/*.spec.ts",
+    "otel-test": "node --require @esbuild-kit/cjs-loader --test-reporter=spec --test test/*.spec.ts",
     "aedes-test": "npm run build && node --require ./test/tracing --test test-aedes/*.js",
-    "aedes-test-bail": "npm run build && node --require ./test/tracing --test-reporter=@reporters/bail --test-reporter-destination=stderr --test-reporter=spec --test-reporter-destination=stdout --test test-aedes/*.js",
+    "test": "npm run otel-test && npm run aedes-test",
     "lint": "eslint . --ext .ts",
     "prettier": "prettier --write .",
     "build": "tsc -p tsconfig.build.json",
