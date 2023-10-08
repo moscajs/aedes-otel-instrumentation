@@ -405,25 +405,34 @@ index 2906213..c415fce 100644
    on(event: 'error', listener: (error: Error) => void): this;
  
 diff --git a/node_modules/aedes/types/instance.d.ts b/node_modules/aedes/types/instance.d.ts
-index f912a95..cfbd023 100644
+index f912a95..b562c5f 100644
 --- a/node_modules/aedes/types/instance.d.ts
 +++ b/node_modules/aedes/types/instance.d.ts
-@@ -68,6 +68,11 @@ type PublishedHandler = (
+@@ -68,6 +68,13 @@ type PublishedHandler = (
    callback: (error?: Error | null) => void
  ) => void;
  
++type DeliverFunc = (packet: AedesPublishPacket, callback: () => void) => void
++
 +type DeliverFuncWrapper = (
 +  client: Client,
-+  deliverfunc: (packet: AedesPublishPacket, callback: () => void) => void
-+) => void
++  deliverfunc: DeliverFunc
++) => DeliverFunc
 +
  export interface AedesOptions {
    mq?: any;
    id?: string;
-@@ -156,4 +161,6 @@ export default class Aedes extends EventEmitter {
+@@ -83,6 +90,7 @@ export interface AedesOptions {
+   authorizeSubscribe?: AuthorizeSubscribeHandler;
+   authorizeForward?: AuthorizeForwardHandler;
+   published?: PublishedHandler;
++  wrapDeliveryFunc?: DeliverFuncWrapper;
+ }
+ 
+ export default class Aedes extends EventEmitter {
+@@ -156,4 +164,5 @@ export default class Aedes extends EventEmitter {
    authorizeSubscribe: AuthorizeSubscribeHandler
    authorizeForward: AuthorizeForwardHandler
    published: PublishedHandler
-+
 +  wrapDeliveryFunc: DeliverFuncWrapper
  }
