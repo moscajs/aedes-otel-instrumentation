@@ -159,11 +159,18 @@ export function getBrokerUrl(
 ): string {
   const protocol = getClientTransport(request)
   if (!request?.connDetails) {
-    const address = !request
-      ? (stream as NetSocket)?.address()
-      : request.socket.address()
+    let address = {}
+    if (isNetSocket(stream) && isNetSocketAddress(stream.address())) {
+      address = stream.address()
+    } else if (
+      typeof request?.socket?.address === 'function' &&
+      isNetSocketAddress(request.socket.address())
+    ) {
+      address = request.socket.address()
+    }
+
     return isNetSocketAddress(address)
-      ? `${protocol}://${address?.address}:${address.port}`
+      ? `${protocol}://${address.address}:${address.port}`
       : `${protocol}://localhost:1883`
   }
   const { isTls, isWebsocket, serverIpAddress, serverPort } =
