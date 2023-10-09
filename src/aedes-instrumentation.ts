@@ -442,14 +442,13 @@ export class AedesInstrumentation extends InstrumentationBase {
       const client = handleSubscribeCtx.getValue(CLIENT_CONTEXT_KEY) as
         | AedesClient
         | undefined
-      const currentContext = context.active()
 
       function patchedDeliverFunc(
         this: unknown, // default to MQEmitter
         packet: AedesPublishPacket,
         callback: () => void
       ) {
-        const parentContext = getContextFromPacket(packet, currentContext)
+        const parentContext = getContextFromPacket(packet, handleSubscribeCtx)
         const startTime = hrTime()
         const topic = packet.topic
         const attributes = {
@@ -498,6 +497,10 @@ export class AedesInstrumentation extends InstrumentationBase {
           const cb = context.bind(messageContext, callback)
           return cb.apply(this)
         }
+
+        // TODO depending on QoS :
+        // - span should be ended in this function for QoS 0 and 1
+        // - span should be ended in packet ack for QoS 2
 
         return func.call(this, packet, patchedCallback)
       }
